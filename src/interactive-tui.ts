@@ -1,5 +1,6 @@
 import {
   CombinedAutocompleteProvider,
+  Box,
   Container,
   Editor,
   Input,
@@ -74,6 +75,11 @@ const green = style(32);
 const yellow = style(33);
 const red = style(31);
 const white = style(37);
+const modalBackground = (text: string): string => `\x1b[48;5;236m${text}\x1b[0m`;
+
+function modalSurface(): Box {
+  return new Box(1, 1, modalBackground);
+}
 
 const selectTheme: SelectListTheme = {
   selectedPrefix: boldCyan,
@@ -176,7 +182,7 @@ export class InteractiveTui {
 
   async confirm(message: string): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      const overlay = new Container();
+      const overlay = modalSurface();
       overlay.addChild(new Text(yellow(`${message}\n\n`), 1, 1));
       const choices = new SelectList([
         { value: "yes", label: "Approve", description: "Allow this operation" },
@@ -199,8 +205,10 @@ export class InteractiveTui {
 
   async askUser(question: string, options: Array<{ label: string; description?: string }>): Promise<string> {
     return new Promise<string>((resolve) => {
-      const overlay = new Container();
-      overlay.addChild(new Text(boldCyan(`Question\n${question}\n`), 1, 1));
+      this.loader.setMessage("Waiting for your answer");
+      this.setStatus("Waiting for your answer", yellow);
+      const overlay = modalSurface();
+      overlay.addChild(new Text(boldCyan(`FUSE NEEDS INPUT\n${question}\n`), 1, 1));
       const items: SelectItem[] = [
         ...options.map((option) => ({ value: option.label, label: option.label, description: option.description })),
         { value: "__custom_answer__", label: "Other...", description: "Type a custom response" },
@@ -231,8 +239,8 @@ export class InteractiveTui {
   }
 
   private showQuestionInput(question: string, resolve: (answer: string) => void): void {
-    const overlay = new Container();
-    overlay.addChild(new Text(boldCyan(`Question\n${question}\n`), 1, 1));
+    const overlay = modalSurface();
+    overlay.addChild(new Text(boldCyan(`FUSE NEEDS INPUT\n${question}\n`), 1, 1));
     const input = new Input();
     overlay.addChild(input);
     const close = (answer: string) => {
@@ -302,7 +310,7 @@ export class InteractiveTui {
       description: `${session.id.slice(0, 8)}  ${session.updatedAt.replace("T", " ").slice(0, 16)}`,
     }));
     const list = new SelectList(items, 10, selectTheme);
-    const overlay = new Container();
+    const overlay = modalSurface();
     overlay.addChild(new Text(boldCyan("Saved sessions\n"), 1, 1));
     overlay.addChild(list);
     const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "60%", anchor: "center", margin: 2 });
@@ -345,7 +353,7 @@ export class InteractiveTui {
       { value: "__add_provider__", label: "Add provider", description: "Configure an OpenAI-compatible endpoint" },
     ];
     const list = new SelectList(items, 10, selectTheme);
-    const overlay = new Container();
+    const overlay = modalSurface();
     overlay.addChild(new Text(boldCyan("Configured providers\n"), 1, 1));
     overlay.addChild(list);
     const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "60%", anchor: "center", margin: 2 });
@@ -383,7 +391,7 @@ export class InteractiveTui {
     ];
     const values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string }> = {};
     let index = 0;
-    const overlay = new Container();
+    const overlay = modalSurface();
     const title = new Text();
     const input = new Input();
     overlay.addChild(title);
