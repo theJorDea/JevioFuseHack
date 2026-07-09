@@ -24,6 +24,12 @@ interface OpenAIResponse {
   error?: { message?: string };
 }
 
+export function effectiveTemperature(role: RoleConfig, requested?: number): number {
+  // Moonshot's Kimi K2.7 API currently accepts only temperature 1.
+  if (/\bkimi\b/i.test(role.model)) return 1;
+  return requested ?? role.temperature ?? 0.2;
+}
+
 export class OpenAICompatibleClient implements ModelClient {
   readonly #provider: ProviderConfig;
   readonly #role: RoleConfig;
@@ -52,7 +58,7 @@ export class OpenAICompatibleClient implements ModelClient {
         messages: request.messages,
         tools: request.tools?.length ? request.tools : undefined,
         tool_choice: request.tools?.length ? "auto" : undefined,
-        temperature: request.temperature ?? this.#role.temperature ?? 0.2,
+        temperature: effectiveTemperature(this.#role, request.temperature),
         max_tokens: request.maxTokens ?? this.#role.maxTokens,
         stream: false,
       }),

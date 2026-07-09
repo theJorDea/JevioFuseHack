@@ -339,6 +339,7 @@ async function main(): Promise<void> {
     for (const role of Object.values(config.roles)) {
       role.provider = provider.name;
       role.model = provider.model;
+      if (/\bkimi\b/i.test(provider.model)) role.temperature = 1;
     }
     config.defaultProvider = provider.name;
     const secretFile = provider.apiKey ? await saveProviderSecret(options.workspace, provider.name, provider.apiKey) : undefined;

@@ -162,7 +162,12 @@ export async function addProviderConfig(
     ? input.roles as Record<string, Record<string, unknown>>
     : {};
   for (const role of ["orchestrator", "coder", "architect", "reviewer", "compactor"]) {
-    roles[role] = { ...roles[role], provider: name, model };
+    roles[role] = {
+      ...roles[role],
+      provider: name,
+      model,
+      ...( /\bkimi\b/i.test(model) ? { temperature: 1 } : {}),
+    };
   }
   input.roles = roles;
   input.defaultProvider = name;
