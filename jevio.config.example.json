@@ -1,0 +1,62 @@
+{
+  "defaultProvider": "ollama",
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1"
+    }
+  },
+  "roles": {
+    "orchestrator": {
+      "provider": "ollama",
+      "model": "qwen3:14b",
+      "temperature": 0.15
+    },
+    "coder": {
+      "provider": "ollama",
+      "model": "qwen3-coder:30b",
+      "temperature": 0.15
+    },
+    "architect": {
+      "provider": "ollama",
+      "model": "qwen3:14b",
+      "temperature": 0.2
+    },
+    "reviewer": {
+      "provider": "ollama",
+      "model": "qwen3:14b",
+      "temperature": 0.1
+    },
+    "compactor": {
+      "provider": "ollama",
+      "model": "qwen3:14b",
+      "temperature": 0.1
+    }
+  },
+  "agent": {
+    "maxTurns": 24,
+    "maxReviewFixes": 1,
+    "maxToolOutputCharacters": 12000,
+    "keepRecentToolResults": 6
+  },
+  "compaction": {
+    "auto": true,
+    "contextWindowTokens": 32768,
+    "reservedTokens": 4096,
+    "triggerCharacters": 80000,
+    "keepRecentMessages": 6,
+    "maxSummaryCharacters": 16000,
+    "prompt": "Preserve user requirements, decisions, relevant files, completed changes, verification results, unresolved errors, and exact next steps. Remove repetition and conversational filler."
+  },
+  "codeIndex": {
+    "enabled": true,
+    "backend": "auto",
+    "prewarm": true,
+    "maxFiles": 10000,
+    "cacheTtlMs": 5000,
+    "maxResults": 20
+  },
+  "permissions": {
+    "autoApproveWorkspaceWrites": false,
+    "autoApproveShell": false
+  }
+}

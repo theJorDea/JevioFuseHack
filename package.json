@@ -1,0 +1,28 @@
+{
+  "name": "jevio",
+  "version": "0.1.0",
+  "description": "Local-first coding agent and multi-model orchestrator",
+  "type": "module",
+  "bin": {
+    "jevio": "./bin/jevio.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE",
+    "jevio.config.example.json"
+  ],
+  "scripts": {
+    "start": "node src/cli.ts",
+    "test": "node --test --test-isolation=none test/*.test.ts",
+    "check": "node --check src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.80.5"
+  }
+}

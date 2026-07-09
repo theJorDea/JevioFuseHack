@@ -1,0 +1,10 @@
+node_modules/
+.env
+.jevio/history/
+.jevio/cache/
+.jevio/sessions/
+.jevio/MEMORY.md
+coverage/
+.tmp-test-*/
+jevio-export-*.md
+*.log
