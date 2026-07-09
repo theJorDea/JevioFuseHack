@@ -39,7 +39,12 @@ test("adds a provider without writing its API key", async (t) => {
     name: "cloud",
     baseUrl: "https://api.example.test/v1/",
     apiKeyEnv: "CLOUD_API_KEY",
+    model: "cloud-code-model",
   });
-  const saved = JSON.parse(await readFile(file, "utf8")) as { providers: { cloud: { baseUrl: string; apiKeyEnv: string } } };
+  const saved = JSON.parse(await readFile(file, "utf8")) as {
+    providers: { cloud: { baseUrl: string; apiKeyEnv: string } };
+    roles: { coder: { provider: string; model: string } };
+  };
   assert.deepEqual(saved.providers.cloud, { baseUrl: "https://api.example.test/v1", apiKeyEnv: "CLOUD_API_KEY" });
+  assert.deepEqual(saved.roles.coder, { provider: "cloud", model: "cloud-code-model" });
 });

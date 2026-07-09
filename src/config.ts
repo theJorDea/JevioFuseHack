@@ -98,7 +98,7 @@ export async function loadConfig(workspace: string, explicitPath?: string): Prom
 export async function addProviderConfig(
   workspace: string,
   explicitPath: string | undefined,
-  provider: { name: string; baseUrl: string; apiKeyEnv?: string },
+  provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string },
 ): Promise<string> {
   const name = provider.name.trim();
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name)) throw new Error("Provider name must start with a letter and use only letters, numbers, _ or -.");
@@ -113,6 +113,8 @@ export async function addProviderConfig(
   if (apiKeyEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
     throw new Error("API key environment variable must use shell-variable characters.");
   }
+  const model = provider.model.trim();
+  if (!model) throw new Error("Model name is required.");
 
   const target = explicitPath ? path.resolve(explicitPath) : (await findConfig(workspace)) ?? path.join(workspace, "jevio.config.json");
   let input: Record<string, unknown> = {};
@@ -129,6 +131,14 @@ export async function addProviderConfig(
     ...(apiKeyEnv ? { apiKeyEnv } : {}),
   };
   input.providers = providers;
+  const roles = input.roles && typeof input.roles === "object" && !Array.isArray(input.roles)
+    ? input.roles as Record<string, Record<string, unknown>>
+    : {};
+  for (const role of ["orchestrator", "coder", "architect", "reviewer", "compactor"]) {
+    roles[role] = { ...roles[role], provider: name, model };
+  }
+  input.roles = roles;
+  input.defaultProvider = name;
   await writeFile(target, `${JSON.stringify(input, null, 2)}\n`, "utf8");
   return target;
 }

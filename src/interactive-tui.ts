@@ -38,7 +38,7 @@ export interface InteractiveTuiOptions {
   getProvider(): string;
   listProviders(): Promise<TuiProvider[]>;
   selectProvider(name: string): Promise<string>;
-  addProvider(provider: { name: string; baseUrl: string; apiKeyEnv?: string }): Promise<string>;
+  addProvider(provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string }): Promise<string>;
 }
 
 class FuseAutocompleteProvider implements AutocompleteProvider {
@@ -317,12 +317,13 @@ export class InteractiveTui {
   }
 
   private showProviderForm(): void {
-    const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKeyEnv"; optional?: boolean }> = [
+    const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKeyEnv" | "model"; optional?: boolean }> = [
       { label: "Provider name", key: "name" },
       { label: "OpenAI-compatible base URL", key: "baseUrl" },
       { label: "API key environment variable", key: "apiKeyEnv", optional: true },
+      { label: "Model name for Fuse roles", key: "model" },
     ];
-    const values: Partial<{ name: string; baseUrl: string; apiKeyEnv: string }> = {};
+    const values: Partial<{ name: string; baseUrl: string; apiKeyEnv: string; model: string }> = {};
     let index = 0;
     const overlay = new Container();
     const title = new Text();
@@ -360,11 +361,11 @@ export class InteractiveTui {
     renderField();
   }
 
-  private async saveProvider(values: Partial<{ name: string; baseUrl: string; apiKeyEnv: string }>): Promise<void> {
+  private async saveProvider(values: Partial<{ name: string; baseUrl: string; apiKeyEnv: string; model: string }>): Promise<void> {
     try {
       const name = values.name ?? "";
       const baseUrl = values.baseUrl ?? "";
-      const message = await this.options.addProvider({ name, baseUrl, apiKeyEnv: values.apiKeyEnv || undefined });
+      const message = await this.options.addProvider({ name, baseUrl, apiKeyEnv: values.apiKeyEnv || undefined, model: values.model ?? "" });
       this.appendMessage("fuse", message, green);
       this.refreshHeader();
       this.setStatus("Ready", dim);

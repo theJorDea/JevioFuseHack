@@ -330,14 +330,18 @@ async function main(): Promise<void> {
     for (const role of Object.values(config.roles)) role.provider = name;
     return `Provider: ${name}. Applied to every role for this session; role model names remain unchanged.`;
   };
-  const addProvider = async (provider: { name: string; baseUrl: string; apiKeyEnv?: string }): Promise<string> => {
+  const addProvider = async (provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string }): Promise<string> => {
     const file = await addProviderConfig(options.workspace, options.configPath, provider);
     config.providers[provider.name] = {
       baseUrl: provider.baseUrl.replace(/\/$/, ""),
       ...(provider.apiKeyEnv ? { apiKeyEnv: provider.apiKeyEnv } : {}),
     };
-    const selected = selectProvider(provider.name);
-    return `${selected}\nSaved provider configuration to ${file}. Set ${provider.apiKeyEnv ?? "the provider API key"} in your environment before running a task.`;
+    for (const role of Object.values(config.roles)) {
+      role.provider = provider.name;
+      role.model = provider.model;
+    }
+    config.defaultProvider = provider.name;
+    return `Provider: ${provider.name}; model: ${provider.model}. Saved configuration to ${file}. Set ${provider.apiKeyEnv ?? "the provider API key"} in your environment before running a task.`;
   };
   let finalization: Promise<void> | undefined;
   const finalizeSession = (): Promise<void> => {
