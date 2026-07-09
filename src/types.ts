@@ -21,6 +21,7 @@ export interface CodeIndexConfig {
   maxFiles: number;
   cacheTtlMs: number;
   maxResults: number;
+  mapMaxCharacters: number;
 }
 
 export interface JevioConfig {
@@ -97,6 +98,7 @@ export interface ToolContext {
   workspace: string;
   skills: SkillMetadata[];
   projectMemory?: string;
+  projectCodeMap?: string;
   autoApproveWrites: boolean;
   autoApproveShell: boolean;
   maxToolOutputCharacters?: number;

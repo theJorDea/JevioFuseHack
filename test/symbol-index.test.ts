@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { invalidateSymbolIndex, lookupSymbol } from "../src/symbol-index.ts";
+import { buildRepositoryMap, invalidateSymbolIndex, lookupSymbol } from "../src/symbol-index.ts";
 
 async function workspace(t: { after(callback: () => unknown): void }): Promise<string> {
   const directory = path.join(process.cwd(), `.tmp-test-symbols-${process.pid}-${Date.now()}`);
@@ -52,4 +52,24 @@ test("symbol index rebuilds after explicit invalidation", async (t) => {
   assert.match(await lookupSymbol(root, config, "secondSymbol"), /Definitions: none found/);
   invalidateSymbolIndex(root);
   assert.match(await lookupSymbol(root, config, "secondSymbol"), /second\.ts:1/);
+});
+
+test("repository map keeps file structure and omits function bodies", async (t) => {
+  const root = await workspace(t);
+  await mkdir(path.join(root, "src"), { recursive: true });
+  await writeFile(path.join(root, "src", "auth.ts"), `export class AuthService {
+  validateToken(token: string): boolean {
+    return token === "secret-body";
+  }
+}
+`);
+  await writeFile(path.join(root, "README.md"), "Repository notes\n");
+
+  const config = structuredClone(DEFAULT_CONFIG.codeIndex);
+  config.backend = "builtin";
+  const map = await buildRepositoryMap(root, config);
+  assert.match(map, /src\/\n  auth\.ts\n    class AuthService/);
+  assert.match(map, /method AuthService\.validateToken\(token: string\)/);
+  assert.match(map, /README\.md/);
+  assert.doesNotMatch(map, /secret-body/);
 });

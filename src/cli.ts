@@ -31,7 +31,7 @@ import {
   type SessionInfo,
 } from "./session.ts";
 import { discoverSkills } from "./skills.ts";
-import { getCtagsStatus, prewarmSymbolIndex } from "./symbol-index.ts";
+import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol-index.ts";
 import { InteractiveTui } from "./interactive-tui.ts";
 import type { ChatMessage, ToolContext } from "./types.ts";
 
@@ -355,8 +355,15 @@ async function main(): Promise<void> {
     return `Context compacted: ~${beforeTokens} -> ~${estimateHistoryTokens(history)} tokens; ${compacted.retainedMessages.length} recent messages retained.`;
   };
   const executeTask = async (task: string): Promise<string> => {
+    try {
+      context.projectCodeMap = await buildRepositoryMap(options.workspace, config.codeIndex);
+    } catch (error) {
+      context.projectCodeMap = undefined;
+      reportEvent({ type: "thinking", role: "orchestrator", detail: `repository map unavailable: ${(error as Error).message}` });
+    }
     const staticContext = [
       context.projectMemory ?? "",
+      context.projectCodeMap ?? "",
       ...context.skills.map((skill) => `${skill.name}: ${skill.description} ${skill.whenToUse ?? ""}`),
       task,
     ].join("\n");

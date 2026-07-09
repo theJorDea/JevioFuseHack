@@ -53,7 +53,8 @@
     "prewarm": true,
     "maxFiles": 10000,
     "cacheTtlMs": 5000,
-    "maxResults": 20
+    "maxResults": 20,
+    "mapMaxCharacters": 12000
   },
   "permissions": {
     "autoApproveWorkspaceWrites": false,

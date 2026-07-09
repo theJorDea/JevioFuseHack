@@ -28,6 +28,7 @@ export interface SymbolReference {
 interface SymbolIndex {
   definitions: Map<string, SymbolDefinition[]>;
   references: Map<string, SymbolReference[]>;
+  files: string[];
   backend: "ctags" | "builtin";
   indexedFiles: number;
   builtAt: number;
@@ -242,12 +243,15 @@ async function buildBuiltinIndex(workspace: string, config: CodeIndexConfig): Pr
   const index: SymbolIndex = {
     definitions: new Map(),
     references: new Map(),
+    files: [],
     backend: "builtin",
     indexedFiles: 0,
     builtAt: Date.now(),
   };
   const files = await collectFiles(workspace, config.maxFiles);
   for (const file of files) {
+    const relativePath = path.relative(workspace, file).replace(/\\/g, "/");
+    index.files.push(relativePath);
     const language = languageFor(file);
     if (!language) continue;
     let content: string;
@@ -257,7 +261,7 @@ async function buildBuiltinIndex(workspace: string, config: CodeIndexConfig): Pr
       continue;
     }
     if (content.length > MAX_FILE_BYTES || content.includes("\0")) continue;
-    scanFile(index, path.relative(workspace, file), content, language);
+    scanFile(index, relativePath, content, language);
     index.indexedFiles += 1;
   }
   return index;
@@ -327,6 +331,62 @@ export async function getSymbolIndex(workspace: string, config: CodeIndexConfig,
 
 export async function prewarmSymbolIndex(workspace: string, config: CodeIndexConfig): Promise<void> {
   if (config.enabled && config.prewarm) await getSymbolIndex(workspace, config);
+}
+
+function mapDefinition(definition: SymbolDefinition): string {
+  const scope = definition.scope ? `${definition.scope}.` : "";
+  if (["class", "interface", "enum", "struct", "trait", "namespace", "module", "type"].includes(definition.kind)) {
+    return `${definition.kind} ${scope}${definition.name}`;
+  }
+  const signature = definition.signature ?? definition.name;
+  return `${definition.kind} ${scope}${signature}`.replace(/\s+/g, " ").trim();
+}
+
+export async function buildRepositoryMap(workspace: string, config: CodeIndexConfig): Promise<string> {
+  const index = await getSymbolIndex(workspace, config);
+  const definitionsByFile = new Map<string, SymbolDefinition[]>();
+  for (const definitions of index.definitions.values()) {
+    for (const definition of definitions) {
+      const list = definitionsByFile.get(definition.path) ?? [];
+      list.push(definition);
+      definitionsByFile.set(definition.path, list);
+    }
+  }
+
+  const files = [...new Set([...index.files, ...definitionsByFile.keys()])].sort((left, right) => left.localeCompare(right));
+  const limit = Math.max(512, config.mapMaxCharacters);
+  const lines = [
+    "Repository map (generated symbol metadata; use lookup_symbol for exact definitions):",
+    `backend: ${index.backend}; files: ${files.length}`,
+  ];
+  let omittedFiles = 0;
+  let previousDirectories: string[] = [];
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+    const file = files[fileIndex];
+    const definitions = [...(definitionsByFile.get(file) ?? [])]
+      .sort((left, right) => left.line - right.line || left.name.localeCompare(right.name));
+    const segments = file.split("/");
+    const filename = segments.pop() ?? file;
+    const directories = segments;
+    let sharedDirectories = 0;
+    while (sharedDirectories < directories.length && directories[sharedDirectories] === previousDirectories[sharedDirectories]) {
+      sharedDirectories += 1;
+    }
+    const entry = [
+      ...directories.slice(sharedDirectories).map((directory, index) => `${"  ".repeat(sharedDirectories + index)}${directory}/`),
+      `${"  ".repeat(directories.length)}${filename}`,
+      ...definitions.map((definition) => `${"  ".repeat(directories.length + 1)}${mapDefinition(definition)}`),
+    ];
+    const candidate = `${entry.join("\n")}\n`;
+    if (lines.join("\n").length + candidate.length > limit) {
+      omittedFiles = files.length - fileIndex;
+      break;
+    }
+    lines.push(...entry);
+    previousDirectories = directories;
+  }
+  if (omittedFiles) lines.push(`... ${omittedFiles} more files omitted; use lookup_symbol or list_files.`);
+  return lines.join("\n");
 }
 
 export function invalidateSymbolIndex(workspace: string): void {

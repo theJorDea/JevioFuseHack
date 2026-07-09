@@ -36,6 +36,7 @@ const DEFAULT_CONFIG: JevioConfig = {
     maxFiles: 10_000,
     cacheTtlMs: 5_000,
     maxResults: 20,
+    mapMaxCharacters: 12_000,
   },
   permissions: {
     autoApproveWorkspaceWrites: false,
