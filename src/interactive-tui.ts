@@ -320,7 +320,7 @@ export class InteractiveTui {
     const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKeyEnv" | "model"; optional?: boolean }> = [
       { label: "Provider name", key: "name" },
       { label: "OpenAI-compatible base URL", key: "baseUrl" },
-      { label: "API key environment variable", key: "apiKeyEnv", optional: true },
+      { label: "API key env variable, e.g. OPENAI_API_KEY", key: "apiKeyEnv", optional: true },
       { label: "Model name for Fuse roles", key: "model" },
     ];
     const values: Partial<{ name: string; baseUrl: string; apiKeyEnv: string; model: string }> = {};

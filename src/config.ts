@@ -111,7 +111,7 @@ export async function addProviderConfig(
   if (!/^https?:$/.test(baseUrl.protocol)) throw new Error("Base URL must use http or https.");
   const apiKeyEnv = provider.apiKeyEnv?.trim();
   if (apiKeyEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
-    throw new Error("API key environment variable must use shell-variable characters.");
+    throw new Error("Enter an environment variable name, for example OPENAI_API_KEY, not the API key itself.");
   }
   const model = provider.model.trim();
   if (!model) throw new Error("Model name is required.");

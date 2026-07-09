@@ -48,3 +48,15 @@ test("adds a provider without writing its API key", async (t) => {
   assert.deepEqual(saved.providers.cloud, { baseUrl: "https://api.example.test/v1", apiKeyEnv: "CLOUD_API_KEY" });
   assert.deepEqual(saved.roles.coder, { provider: "cloud", model: "cloud-code-model" });
 });
+
+test("rejects an API key where an environment variable name is required", async (t) => {
+  const workspace = path.join(process.cwd(), `.tmp-test-config-key-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await assert.rejects(() => addProviderConfig(workspace, undefined, {
+    name: "cloud",
+    baseUrl: "https://api.example.test/v1",
+    apiKeyEnv: "sk-not-a-variable-name",
+    model: "cloud-code-model",
+  }), /not the API key itself/);
+});
