@@ -172,12 +172,15 @@ export class InteractiveTui {
     });
   }
 
-  reportEvent(event: { type: "thinking" | "tool"; role: string; detail: string }): void {
+  reportEvent(event: { type: "thinking" | "tool" | "progress"; role: string; detail: string }): void {
     const label = event.type === "tool"
       ? `${event.role.toUpperCase()}  tool  ${event.detail}`
-      : `${event.role.toUpperCase()}  ${event.detail}`;
-    this.appendActivity(label, event.type === "tool" ? cyan : dim);
-    this.setStatus(label, event.type === "tool" ? cyan : dim);
+      : event.type === "progress"
+        ? `${event.role.toUpperCase()}  plan  ${event.detail}`
+        : `${event.role.toUpperCase()}  ${event.detail}`;
+    const color = event.type === "tool" ? cyan : event.type === "progress" ? green : dim;
+    this.appendActivity(label, color);
+    this.setStatus(label, color);
   }
 
   async confirm(message: string): Promise<boolean> {

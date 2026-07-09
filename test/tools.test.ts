@@ -71,6 +71,8 @@ test("agents can ask the interactive user a structured question", async () => {
   }, context);
   assert.equal(result, "Which layout?: Grid");
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "ask_user"));
+  assert.equal(await executeTool("report_progress", { message: "Inspecting the project structure." }, context), "Progress update shown to the user.");
+  assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "report_progress"));
 });
 
 test("root agent can delegate into an isolated specialist", async (t) => {

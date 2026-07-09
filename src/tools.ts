@@ -231,6 +231,19 @@ const definitions: Record<string, ToolDefinition> = {
       },
     },
   },
+  report_progress: {
+    type: "function",
+    function: {
+      name: "report_progress",
+      description: "Show the user a concise progress update or plan for non-trivial work. Use one short sentence; do not reveal private chain-of-thought.",
+      parameters: {
+        type: "object",
+        properties: { message: { type: "string" } },
+        required: ["message"],
+        additionalProperties: false,
+      },
+    },
+  },
 };
 
 const readTools = [
@@ -242,6 +255,7 @@ const readTools = [
   "git_diff",
   "load_skill",
   "ask_user",
+  "report_progress",
 ];
 
 export function toolsForRole(role: RoleName): ToolDefinition[] {
@@ -310,6 +324,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         })
         : [];
       return context.askUser(question, options);
+    }
+
+    if (name === "report_progress") {
+      const message = String(input.message ?? "").trim();
+      if (!message) throw new Error("message must not be empty");
+      return "Progress update shown to the user.";
     }
 
     if (name === "lookup_symbol") {
