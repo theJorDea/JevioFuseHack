@@ -13,7 +13,9 @@ const context: ToolContext = {
 };
 
 test("repository map is injected only for planning roles", () => {
-  assert.match(buildSystemPrompt("orchestrator", context), /<repository_map>/);
+  const orchestratorPrompt = buildSystemPrompt("orchestrator", context);
+  assert.match(orchestratorPrompt, /You are Jevio Fuse/);
+  assert.match(orchestratorPrompt, /<repository_map>/);
   assert.match(buildSystemPrompt("architect", context), /AuthService/);
   assert.doesNotMatch(buildSystemPrompt("coder", context), /<repository_map>/);
   assert.doesNotMatch(buildSystemPrompt("reviewer", context), /<repository_map>/);
