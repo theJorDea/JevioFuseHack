@@ -302,6 +302,19 @@ async function main(): Promise<void> {
     return /^(y|yes)$/i.test(answer.trim());
   };
   const { config, context } = await makeContext(options, confirm);
+  context.askUser = async (question, choices) => {
+    if (tui) return tui.askUser(question, choices);
+    if (!terminal) return "[unavailable: non-interactive run]";
+    if (choices.length) {
+      process.stdout.write(`\n${question}\n`);
+      choices.forEach((choice, index) => process.stdout.write(`  ${index + 1}. ${choice.label}${choice.description ? ` - ${choice.description}` : ""}\n`));
+    }
+    const answer = (await terminal.question(choices.length ? "Choose a number or type an answer: " : `${question}\n> `)).trim();
+    const selected = Number.parseInt(answer, 10);
+    return Number.isInteger(selected) && String(selected) === answer && choices[selected - 1]
+      ? choices[selected - 1].label
+      : answer || "[cancelled]";
+  };
   void prewarmSymbolIndex(options.workspace, config.codeIndex).catch((error) => {
     process.stderr.write(`  [symbol-index] background prewarm failed: ${(error as Error).message}\n`);
   });

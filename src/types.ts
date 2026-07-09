@@ -104,7 +104,13 @@ export interface ToolContext {
   maxToolOutputCharacters?: number;
   codeIndex?: CodeIndexConfig;
   confirm(message: string): Promise<boolean>;
+  askUser?: (question: string, options: AskUserOption[]) => Promise<string>;
   delegate?: (role: Exclude<RoleName, "orchestrator">, task: string) => Promise<string>;
+}
+
+export interface AskUserOption {
+  label: string;
+  description?: string;
 }
 
 export interface AgentResult {

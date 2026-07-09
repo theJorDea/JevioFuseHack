@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { loadSkill } from "./skills.ts";
 import { getSymbolIndex, invalidateSymbolIndex, lookupSymbol } from "./symbol-index.ts";
-import type { RoleName, ToolContext, ToolDefinition } from "./types.ts";
+import type { AskUserOption, RoleName, ToolContext, ToolDefinition } from "./types.ts";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -203,6 +203,34 @@ const definitions: Record<string, ToolDefinition> = {
       },
     },
   },
+  ask_user: {
+    type: "function",
+    function: {
+      name: "ask_user",
+      description: "Ask the user a decision question when the answer materially affects implementation. Offer concise options when possible. Do not ask for information that can be found in the workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: { type: "string", description: "A concise decision question" },
+          options: {
+            type: "array",
+            maxItems: 6,
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                description: { type: "string" },
+              },
+              required: ["label"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["question"],
+        additionalProperties: false,
+      },
+    },
+  },
 };
 
 const readTools = [
@@ -213,6 +241,7 @@ const readTools = [
   "rebuild_symbol_index",
   "git_diff",
   "load_skill",
+  "ask_user",
 ];
 
 export function toolsForRole(role: RoleName): ToolDefinition[] {
@@ -266,6 +295,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const task = String(input.task ?? "").trim();
       if (!task) throw new Error("task must not be empty");
       return context.delegate(role as "architect" | "coder" | "reviewer", task);
+    }
+
+    if (name === "ask_user") {
+      if (!context.askUser) throw new Error("User questions are unavailable in this non-interactive run.");
+      const question = String(input.question ?? "").trim();
+      if (!question) throw new Error("question must not be empty");
+      const options = Array.isArray(input.options)
+        ? input.options.slice(0, 6).flatMap((item): AskUserOption[] => {
+          if (!item || typeof item !== "object") return [];
+          const value = item as Record<string, unknown>;
+          const label = String(value.label ?? "").trim();
+          return label ? [{ label, description: typeof value.description === "string" ? value.description : undefined }] : [];
+        })
+        : [];
+      return context.askUser(question, options);
     }
 
     if (name === "lookup_symbol") {

@@ -185,13 +185,68 @@ export class InteractiveTui {
       overlay.addChild(choices);
       const close = (answer: boolean) => {
         handle.hide();
+        this.dismissOverlay = undefined;
         this.tui.setFocus(this.editor);
         resolve(answer);
       };
       choices.onSelect = (choice) => close(choice.value === "yes");
       choices.onCancel = () => close(false);
       const handle = this.tui.showOverlay(overlay, { width: "60%", minWidth: 44, maxHeight: 8, anchor: "center", margin: 2 });
+      this.dismissOverlay = () => close(false);
+      this.tui.setFocus(choices);
     });
+  }
+
+  async askUser(question: string, options: Array<{ label: string; description?: string }>): Promise<string> {
+    return new Promise<string>((resolve) => {
+      const overlay = new Container();
+      overlay.addChild(new Text(boldCyan(`Question\n${question}\n`), 1, 1));
+      const items: SelectItem[] = [
+        ...options.map((option) => ({ value: option.label, label: option.label, description: option.description })),
+        { value: "__custom_answer__", label: "Other...", description: "Type a custom response" },
+      ];
+      const choices = new SelectList(items, 8, selectTheme);
+      overlay.addChild(choices);
+      const close = (answer: string) => {
+        handle.hide();
+        this.dismissOverlay = undefined;
+        this.tui.setFocus(this.editor);
+        if (answer && answer !== "[cancelled]") this.appendMessage("you", answer, cyan);
+        resolve(answer);
+      };
+      choices.onSelect = (choice) => {
+        if (choice.value === "__custom_answer__") {
+          handle.hide();
+          this.dismissOverlay = undefined;
+          this.showQuestionInput(question, resolve);
+        } else {
+          close(choice.value);
+        }
+      };
+      choices.onCancel = () => close("[cancelled]");
+      const handle = this.tui.showOverlay(overlay, { width: "72%", minWidth: 52, maxHeight: "60%", anchor: "center", margin: 2 });
+      this.dismissOverlay = () => close("[cancelled]");
+      this.tui.setFocus(choices);
+    });
+  }
+
+  private showQuestionInput(question: string, resolve: (answer: string) => void): void {
+    const overlay = new Container();
+    overlay.addChild(new Text(boldCyan(`Question\n${question}\n`), 1, 1));
+    const input = new Input();
+    overlay.addChild(input);
+    const close = (answer: string) => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+      if (answer && answer !== "[cancelled]") this.appendMessage("you", answer, cyan);
+      resolve(answer);
+    };
+    input.onSubmit = (answer) => close(answer.trim() || "[cancelled]");
+    input.onEscape = () => close("[cancelled]");
+    const handle = this.tui.showOverlay(overlay, { width: "72%", minWidth: 52, maxHeight: 8, anchor: "center", margin: 2 });
+    this.dismissOverlay = () => close("[cancelled]");
+    this.tui.setFocus(input);
   }
 
   private async handleSubmit(input: string): Promise<void> {

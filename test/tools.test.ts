@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { pruneOldToolResults } from "../src/agent.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { executeTool, resolveWorkspacePath } from "../src/tools.ts";
+import { executeTool, resolveWorkspacePath, toolsForRole } from "../src/tools.ts";
 import type { ToolContext } from "../src/types.ts";
 
 async function workspace(t: Parameters<typeof test>[1] extends (arg: infer T) => unknown ? T : never): Promise<string> {
@@ -54,6 +54,23 @@ test("search reports relative paths and line numbers", async (t) => {
     await executeTool("search_text", { query: "needle" }, context),
     "sample.ts:2: needle here",
   );
+});
+
+test("agents can ask the interactive user a structured question", async () => {
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+    askUser: async (question, options) => `${question}: ${options[0]?.label}`,
+  };
+  const result = await executeTool("ask_user", {
+    question: "Which layout?",
+    options: [{ label: "Grid", description: "Responsive cards" }],
+  }, context);
+  assert.equal(result, "Which layout?: Grid");
+  assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "ask_user"));
 });
 
 test("root agent can delegate into an isolated specialist", async (t) => {
