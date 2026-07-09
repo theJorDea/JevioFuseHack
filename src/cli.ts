@@ -11,7 +11,7 @@ import {
   historyCharacters,
   needsAutoCompaction,
 } from "./compaction.ts";
-import { loadConfig } from "./config.ts";
+import { addProviderConfig, loadConfig } from "./config.ts";
 import { runTeam } from "./orchestrator.ts";
 import {
   appendProjectMemory,
@@ -77,6 +77,7 @@ const INTERACTIVE_HELP = `Session commands:
   /export-md [path]            Export the current Markdown transcript
   /compact [instruction]       Compact context with the configured model
   /compact status              Show compaction settings and context estimate
+  /provider [name]             Show or switch a configured provider for this session
   /team                        Use architect -> coder -> reviewer for next tasks
   /direct                      Use coder directly for next tasks
   /orchestrate                 Return to dynamic orchestration
@@ -320,6 +321,24 @@ async function main(): Promise<void> {
     : options.direct
       ? "direct"
       : "orchestrate";
+  const currentProvider = (): string => {
+    const providers = new Set(Object.values(config.roles).map((role) => role.provider ?? config.defaultProvider));
+    return providers.size === 1 ? [...providers][0] : "mixed";
+  };
+  const selectProvider = (name: string): string => {
+    if (!config.providers[name]) throw new Error(`Unknown provider '${name}'. Add it to jevio.config.json first.`);
+    for (const role of Object.values(config.roles)) role.provider = name;
+    return `Provider: ${name}. Applied to every role for this session; role model names remain unchanged.`;
+  };
+  const addProvider = async (provider: { name: string; baseUrl: string; apiKeyEnv?: string }): Promise<string> => {
+    const file = await addProviderConfig(options.workspace, options.configPath, provider);
+    config.providers[provider.name] = {
+      baseUrl: provider.baseUrl.replace(/\/$/, ""),
+      ...(provider.apiKeyEnv ? { apiKeyEnv: provider.apiKeyEnv } : {}),
+    };
+    const selected = selectProvider(provider.name);
+    return `${selected}\nSaved provider configuration to ${file}. Set ${provider.apiKeyEnv ?? "the provider API key"} in your environment before running a task.`;
+  };
   let finalization: Promise<void> | undefined;
   const finalizeSession = (): Promise<void> => {
     if (!finalization) {
@@ -422,6 +441,10 @@ async function main(): Promise<void> {
       mode = "orchestrate";
       return { output: "Mode: orchestrate." };
     }
+    if (command === "/provider") {
+      if (!argument) return { output: `Provider: ${currentProvider()}. Use /provider <name> to switch this session.` };
+      return { output: selectProvider(parts[0] ?? "") };
+    }
     if (["/new", "/clear", "/reset"].includes(command)) {
       await discardEmptySession(active.info);
       active = { info: await createSession(options.workspace), history: [] };
@@ -512,6 +535,14 @@ async function main(): Promise<void> {
           messageCount: active.info.messageCount,
         }),
         getMode: () => mode,
+        getProvider: currentProvider,
+        listProviders: async () => Object.entries(config.providers).map(([name, provider]) => ({
+          name,
+          baseUrl: provider.baseUrl,
+          apiKeyEnv: provider.apiKeyEnv,
+        })),
+        selectProvider: async (name) => selectProvider(name),
+        addProvider,
       });
       await tui.run();
       return;

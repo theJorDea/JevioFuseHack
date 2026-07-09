@@ -2,22 +2,30 @@ import {
   CombinedAutocompleteProvider,
   Container,
   Editor,
+  Input,
   Loader,
   Markdown,
   ProcessTerminal,
   SelectList,
   Text,
   TUI,
+  type AutocompleteProvider,
   type MarkdownTheme,
   type SelectItem,
   type SelectListTheme,
 } from "@earendil-works/pi-tui";
-import { SLASH_COMMANDS } from "./slash-commands.ts";
+import { isExactSlashCommand, SLASH_COMMANDS } from "./slash-commands.ts";
 
 export interface TuiSession {
   id: string;
   title: string;
   updatedAt: string;
+}
+
+export interface TuiProvider {
+  name: string;
+  baseUrl: string;
+  apiKeyEnv?: string;
 }
 
 export interface InteractiveTuiOptions {
@@ -27,6 +35,35 @@ export interface InteractiveTuiOptions {
   resumeSession(id: string): Promise<string>;
   getSession(): { id: string; title: string; messageCount: number };
   getMode(): "team" | "direct" | "orchestrate";
+  getProvider(): string;
+  listProviders(): Promise<TuiProvider[]>;
+  selectProvider(name: string): Promise<string>;
+  addProvider(provider: { name: string; baseUrl: string; apiKeyEnv?: string }): Promise<string>;
+}
+
+class FuseAutocompleteProvider implements AutocompleteProvider {
+  private readonly provider: CombinedAutocompleteProvider;
+  readonly triggerCharacters: string[] | undefined;
+
+  constructor(provider: CombinedAutocompleteProvider) {
+    this.provider = provider;
+    this.triggerCharacters = provider.triggerCharacters;
+  }
+
+  async getSuggestions(...args: Parameters<AutocompleteProvider["getSuggestions"]>) {
+    const [lines, cursorLine, cursorCol] = args;
+    const input = lines[cursorLine]?.slice(0, cursorCol) ?? "";
+    if (isExactSlashCommand(input)) return null;
+    return this.provider.getSuggestions(...args);
+  }
+
+  applyCompletion(...args: Parameters<AutocompleteProvider["applyCompletion"]>) {
+    return this.provider.applyCompletion(...args);
+  }
+
+  shouldTriggerFileCompletion(...args: Parameters<NonNullable<AutocompleteProvider["shouldTriggerFileCompletion"]>>) {
+    return this.provider.shouldTriggerFileCompletion?.(...args) ?? false;
+  }
 }
 
 const style = (code: number) => (text: string): string => `\x1b[${code}m${text}\x1b[0m`;
@@ -76,20 +113,22 @@ export class InteractiveTui {
   private busy = false;
   private resolveExit?: () => void;
   private stopped = false;
+  private dismissOverlay?: () => void;
 
   constructor(options: InteractiveTuiOptions) {
     this.options = options;
     this.tui = new TUI(new ProcessTerminal());
     this.loader = new Loader(this.tui, cyan, dim, "Ready", { frames: [".", "o", "O", "o"], intervalMs: 120 });
     this.editor = new Editor(this.tui, { borderColor: cyan, selectList: selectTheme }, { paddingX: 1, autocompleteMaxVisible: 8 });
-    this.editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
+    const autocomplete = new CombinedAutocompleteProvider(
       SLASH_COMMANDS.map((command) => ({
         name: command.name,
         description: command.argumentHint ? `${command.description} ${command.argumentHint}` : command.description,
         argumentHint: command.argumentHint,
       })),
       options.workspace,
-    ));
+    );
+    this.editor.setAutocompleteProvider(new FuseAutocompleteProvider(autocomplete));
     this.editor.onSubmit = (input) => void this.handleSubmit(input);
 
     this.root.addChild(this.header);
@@ -107,6 +146,10 @@ export class InteractiveTui {
         } else {
           this.stop();
         }
+        return { consume: true };
+      }
+      if (data === "\x1b" && this.dismissOverlay) {
+        this.dismissOverlay();
         return { consume: true };
       }
       return undefined;
@@ -151,11 +194,12 @@ export class InteractiveTui {
   private async handleSubmit(input: string): Promise<void> {
     const value = input.trim();
     if (!value || this.busy) return;
-    if (/^\/(?:sessions?|resume)(?:\s*)$/i.test(value)) {
+    if (/^\/(?:sessions?|resume|provider)(?:\s*)$/i.test(value)) {
       this.editor.addToHistory(input);
       this.editor.setText("");
       try {
-        await this.showSessionPicker();
+        if (/^\/provider\s*$/i.test(value)) await this.showProviderPicker();
+        else await this.showSessionPicker();
       } catch (error) {
         this.appendMessage("error", (error as Error).message, red);
       }
@@ -232,6 +276,103 @@ export class InteractiveTui {
     }
   }
 
+  private async showProviderPicker(): Promise<void> {
+    const providers = await this.options.listProviders();
+    const items: SelectItem[] = [
+      ...providers.map((provider) => ({
+      value: provider.name,
+      label: provider.name,
+      description: `${provider.baseUrl}${provider.apiKeyEnv ? `  ${provider.apiKeyEnv}` : ""}`,
+      })),
+      { value: "__add_provider__", label: "Add provider", description: "Configure an OpenAI-compatible endpoint" },
+    ];
+    const list = new SelectList(items, 10, selectTheme);
+    const overlay = new Container();
+    overlay.addChild(new Text(boldCyan("Configured providers\n"), 1, 1));
+    overlay.addChild(list);
+    const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "60%", anchor: "center", margin: 2 });
+    const close = () => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+    };
+    this.dismissOverlay = close;
+    list.onSelect = (item) => {
+      close();
+      if (item.value === "__add_provider__") this.showProviderForm();
+      else void this.chooseProvider(item.value);
+    };
+    list.onCancel = close;
+    this.tui.setFocus(list);
+  }
+
+  private async chooseProvider(name: string): Promise<void> {
+    try {
+      this.appendMessage("fuse", await this.options.selectProvider(name), green);
+      this.refreshHeader();
+      this.setStatus("Ready", dim);
+    } catch (error) {
+      this.appendMessage("error", (error as Error).message, red);
+    }
+  }
+
+  private showProviderForm(): void {
+    const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKeyEnv"; optional?: boolean }> = [
+      { label: "Provider name", key: "name" },
+      { label: "OpenAI-compatible base URL", key: "baseUrl" },
+      { label: "API key environment variable", key: "apiKeyEnv", optional: true },
+    ];
+    const values: Partial<{ name: string; baseUrl: string; apiKeyEnv: string }> = {};
+    let index = 0;
+    const overlay = new Container();
+    const title = new Text();
+    const input = new Input();
+    overlay.addChild(title);
+    overlay.addChild(input);
+    const renderField = () => {
+      const field = fields[index];
+      title.setText(`${boldCyan("Add provider")}\n${field.label}${field.optional ? " (optional)" : ""}\n`);
+      input.setValue("");
+      this.tui.requestRender();
+    };
+    const close = () => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+    };
+    input.onEscape = close;
+    input.onSubmit = (raw) => {
+      const field = fields[index];
+      const value = raw.trim();
+      if (!value && !field.optional) return;
+      values[field.key] = value;
+      index += 1;
+      if (index < fields.length) {
+        renderField();
+        return;
+      }
+      close();
+      void this.saveProvider(values);
+    };
+    const handle = this.tui.showOverlay(overlay, { width: "70%", minWidth: 52, maxHeight: 8, anchor: "center", margin: 2 });
+    this.dismissOverlay = close;
+    this.tui.setFocus(input);
+    renderField();
+  }
+
+  private async saveProvider(values: Partial<{ name: string; baseUrl: string; apiKeyEnv: string }>): Promise<void> {
+    try {
+      const name = values.name ?? "";
+      const baseUrl = values.baseUrl ?? "";
+      const message = await this.options.addProvider({ name, baseUrl, apiKeyEnv: values.apiKeyEnv || undefined });
+      this.appendMessage("fuse", message, green);
+      this.refreshHeader();
+      this.setStatus("Ready", dim);
+    } catch (error) {
+      this.appendMessage("error", (error as Error).message, red);
+    }
+  }
+
   private appendMessage(label: string, content: string, color: (text: string) => string): void {
     this.transcript.addChild(new Text(color(label.toUpperCase()), 1, 1));
     this.transcript.addChild(new Markdown(content, 1, 0, markdownTheme));
@@ -242,7 +383,7 @@ export class InteractiveTui {
   private refreshHeader(): void {
     const session = this.options.getSession();
     const mode = this.options.getMode();
-    this.header.setText(`${boldCyan("JEVIO")}  ${cyan(mode.toUpperCase())}  ${dim(session.id.slice(0, 8))}  ${white(session.title)}`);
+    this.header.setText(`${boldCyan("FUSE")}  ${cyan(mode.toUpperCase())}  ${yellow(this.options.getProvider())}  ${dim(session.id.slice(0, 8))}  ${white(session.title)}`);
   }
 
   private setStatus(message: string, color: (text: string) => string): void {

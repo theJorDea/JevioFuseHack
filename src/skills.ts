@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SkillMetadata } from "./types.ts";
 
 interface ParsedSkill {
@@ -45,11 +46,12 @@ function firstBodyLine(document: string): string | undefined {
 }
 
 export async function discoverSkills(workspace: string): Promise<SkillMetadata[]> {
-  // Project-specific, open .agents conventions take precedence over Jevio-local skills.
+  // Project-specific skills take precedence over the bundled defaults.
   const roots = [
     path.join(workspace, ".agents", "skills"),
     path.join(workspace, ".jevio", "skills"),
     path.join(workspace, "skills"),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "default-skills"),
   ];
   const found = new Map<string, SkillMetadata>();
 

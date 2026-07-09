@@ -44,7 +44,8 @@ Local
 `);
 
   const skills = await discoverSkills(workspace);
-  assert.equal(skills.length, 1);
-  assert.equal(skills[0].description, "Portable review skill");
-  assert.equal(skills[0].modelInvocable, true);
+  const review = skills.find((skill) => skill.name === "review");
+  assert.equal(review?.description, "Portable review skill");
+  assert.equal(review?.modelInvocable, true);
+  assert.ok(skills.some((skill) => skill.name === "make-interfaces-feel-better"));
 });

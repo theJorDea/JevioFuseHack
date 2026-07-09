@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { loadConfig } from "../src/config.ts";
+import { addProviderConfig, loadConfig } from "../src/config.ts";
 
 test("loads partial config, expands environment, and fills role defaults", async (t) => {
   const workspace = path.join(process.cwd(), `.tmp-test-config-${process.pid}-${Date.now()}`);
@@ -29,4 +29,17 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.agent.keepRecentToolResults, 6);
   assert.equal(config.compaction.contextWindowTokens, 32768);
   assert.equal(config.codeIndex.backend, "auto");
+});
+
+test("adds a provider without writing its API key", async (t) => {
+  const workspace = path.join(process.cwd(), `.tmp-test-config-provider-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  const file = await addProviderConfig(workspace, undefined, {
+    name: "cloud",
+    baseUrl: "https://api.example.test/v1/",
+    apiKeyEnv: "CLOUD_API_KEY",
+  });
+  const saved = JSON.parse(await readFile(file, "utf8")) as { providers: { cloud: { baseUrl: string; apiKeyEnv: string } } };
+  assert.deepEqual(saved.providers.cloud, { baseUrl: "https://api.example.test/v1", apiKeyEnv: "CLOUD_API_KEY" });
 });
