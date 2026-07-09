@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { addProviderConfig, loadConfig } from "../src/config.ts";
+import { addProviderConfig, loadConfig, saveProviderSecret } from "../src/config.ts";
 
 test("loads partial config, expands environment, and fills role defaults", async (t) => {
   const workspace = path.join(process.cwd(), `.tmp-test-config-${process.pid}-${Date.now()}`);
@@ -49,14 +49,16 @@ test("adds a provider without writing its API key", async (t) => {
   assert.deepEqual(saved.roles.coder, { provider: "cloud", model: "cloud-code-model" });
 });
 
-test("rejects an API key where an environment variable name is required", async (t) => {
+test("loads a direct provider key from the ignored local secrets file", async (t) => {
   const workspace = path.join(process.cwd(), `.tmp-test-config-key-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));
   await mkdir(workspace, { recursive: true });
-  await assert.rejects(() => addProviderConfig(workspace, undefined, {
+  await addProviderConfig(workspace, undefined, {
     name: "cloud",
     baseUrl: "https://api.example.test/v1",
-    apiKeyEnv: "sk-not-a-variable-name",
+    apiKeyEnv: "CLOUD_API_KEY",
     model: "cloud-code-model",
-  }), /not the API key itself/);
+  });
+  await saveProviderSecret(workspace, "cloud", "sk-direct-key");
+  assert.equal((await loadConfig(workspace)).providers.cloud.apiKey, "sk-direct-key");
 });

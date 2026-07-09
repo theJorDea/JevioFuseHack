@@ -11,7 +11,7 @@ import {
   historyCharacters,
   needsAutoCompaction,
 } from "./compaction.ts";
-import { addProviderConfig, loadConfig } from "./config.ts";
+import { addProviderConfig, loadConfig, saveProviderSecret } from "./config.ts";
 import { runTeam } from "./orchestrator.ts";
 import {
   appendProjectMemory,
@@ -330,18 +330,19 @@ async function main(): Promise<void> {
     for (const role of Object.values(config.roles)) role.provider = name;
     return `Provider: ${name}. Applied to every role for this session; role model names remain unchanged.`;
   };
-  const addProvider = async (provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string }): Promise<string> => {
+  const addProvider = async (provider: { name: string; baseUrl: string; apiKey?: string; model: string }): Promise<string> => {
     const file = await addProviderConfig(options.workspace, options.configPath, provider);
     config.providers[provider.name] = {
       baseUrl: provider.baseUrl.replace(/\/$/, ""),
-      ...(provider.apiKeyEnv ? { apiKeyEnv: provider.apiKeyEnv } : {}),
+      ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
     };
     for (const role of Object.values(config.roles)) {
       role.provider = provider.name;
       role.model = provider.model;
     }
     config.defaultProvider = provider.name;
-    return `Provider: ${provider.name}; model: ${provider.model}. Saved configuration to ${file}. Set ${provider.apiKeyEnv ?? "the provider API key"} in your environment before running a task.`;
+    const secretFile = provider.apiKey ? await saveProviderSecret(options.workspace, provider.name, provider.apiKey) : undefined;
+    return `Provider: ${provider.name}; model: ${provider.model}. Saved configuration to ${file}.${secretFile ? ` API key saved locally in ${secretFile}.` : ""}`;
   };
   let finalization: Promise<void> | undefined;
   const finalizeSession = (): Promise<void> => {

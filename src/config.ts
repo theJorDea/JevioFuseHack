@@ -1,4 +1,4 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
 
@@ -90,9 +90,36 @@ export async function findConfig(start: string): Promise<string | null> {
 
 export async function loadConfig(workspace: string, explicitPath?: string): Promise<JevioConfig> {
   const configPath = explicitPath ? path.resolve(explicitPath) : await findConfig(workspace);
-  if (!configPath) return structuredClone(DEFAULT_CONFIG);
-  const raw = JSON.parse(await readFile(configPath, "utf8")) as Partial<JevioConfig>;
-  return mergeConfig(expandEnvironment(raw) as Partial<JevioConfig>);
+  const config = configPath
+    ? mergeConfig(expandEnvironment(JSON.parse(await readFile(configPath, "utf8")) as Partial<JevioConfig>) as Partial<JevioConfig>)
+    : structuredClone(DEFAULT_CONFIG);
+  try {
+    const secrets = JSON.parse(await readFile(path.join(workspace, ".jevio", "providers.json"), "utf8")) as {
+      providers?: Record<string, { apiKey?: string }>;
+    };
+    for (const [name, secret] of Object.entries(secrets.providers ?? {})) {
+      if (config.providers[name] && secret.apiKey) config.providers[name].apiKey = secret.apiKey;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return config;
+}
+
+export async function saveProviderSecret(workspace: string, name: string, apiKey: string): Promise<string> {
+  const directory = path.join(workspace, ".jevio");
+  const target = path.join(directory, "providers.json");
+  let secrets: { providers: Record<string, { apiKey?: string }> } = { providers: {} };
+  try {
+    secrets = JSON.parse(await readFile(target, "utf8")) as typeof secrets;
+    if (!secrets.providers || typeof secrets.providers !== "object") secrets.providers = {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  secrets.providers[name] = { apiKey };
+  await mkdir(directory, { recursive: true });
+  await writeFile(target, `${JSON.stringify(secrets, null, 2)}\n`, "utf8");
+  return target;
 }
 
 export async function addProviderConfig(
