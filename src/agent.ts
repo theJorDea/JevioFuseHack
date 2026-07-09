@@ -125,13 +125,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     }
 
     for (const call of response.toolCalls) {
-      options.onEvent?.({ type: "tool", role: options.role, detail: call.name });
+      options.onEvent?.({ type: "tool", role: options.role, detail: `${call.name} (running)` });
       let output: string;
+      let failed = false;
       try {
         output = await executeTool(call.name, parseArguments(call.arguments), options.toolContext);
       } catch (error) {
         output = `Tool error: ${(error as Error).message}`;
+        failed = true;
       }
+      options.onEvent?.({ type: "tool", role: options.role, detail: `${call.name} (${failed ? "failed" : "done"})` });
       messages.push({
         role: "tool",
         tool_call_id: call.id,

@@ -167,7 +167,10 @@ export class InteractiveTui {
   }
 
   reportEvent(event: { type: "thinking" | "tool"; role: string; detail: string }): void {
-    const label = event.type === "tool" ? `${event.role} -> ${event.detail}` : `${event.role}: ${event.detail}`;
+    const label = event.type === "tool"
+      ? `${event.role.toUpperCase()}  tool  ${event.detail}`
+      : `${event.role.toUpperCase()}  ${event.detail}`;
+    this.appendActivity(label, event.type === "tool" ? cyan : dim);
     this.setStatus(label, event.type === "tool" ? cyan : dim);
   }
 
@@ -211,12 +214,12 @@ export class InteractiveTui {
     this.editor.addToHistory(input);
     this.editor.setText("");
     if (!value.startsWith("/")) this.appendMessage("you", input, cyan);
-    this.loader.setMessage(value.startsWith("/") ? "Applying command" : "Jevio is working");
+    this.loader.setMessage(value.startsWith("/") ? "Applying command" : "Fuse is working");
     this.loader.start();
     this.setStatus("Working...", cyan);
     try {
       const result = await this.options.submit(input);
-      if (result.output) this.appendMessage("jevio", result.output, green);
+      if (result.output) this.appendMessage("fuse", result.output, green);
       this.refreshHeader();
       if (result.exit) this.stop();
       else if (!result.output) this.setStatus("Ready", dim);
@@ -235,7 +238,7 @@ export class InteractiveTui {
   private async showSessionPicker(): Promise<void> {
     const sessions = await this.options.listSessions();
     if (!sessions.length) {
-      this.appendMessage("jevio", "No saved sessions in this workspace.", dim);
+      this.appendMessage("fuse", "No saved sessions in this workspace.", dim);
       return;
     }
     const items: SelectItem[] = sessions.map((session) => ({
@@ -263,7 +266,7 @@ export class InteractiveTui {
     this.loader.setMessage("Loading session");
     this.loader.start();
     try {
-      this.appendMessage("jevio", await this.options.resumeSession(id), green);
+      this.appendMessage("fuse", await this.options.resumeSession(id), green);
       this.refreshHeader();
       this.setStatus("Ready", dim);
     } catch (error) {
@@ -378,6 +381,11 @@ export class InteractiveTui {
     this.transcript.addChild(new Text(color(label.toUpperCase()), 1, 1));
     this.transcript.addChild(new Markdown(content, 1, 0, markdownTheme));
     this.transcript.addChild(new Text(""));
+    this.tui.requestRender();
+  }
+
+  private appendActivity(content: string, color: (text: string) => string): void {
+    this.transcript.addChild(new Text(color(`> ${content}`), 1, 0));
     this.tui.requestRender();
   }
 
