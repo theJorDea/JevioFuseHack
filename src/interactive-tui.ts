@@ -10,6 +10,7 @@ import {
   SelectList,
   Text,
   TUI,
+  type Component,
   type AutocompleteProvider,
   type MarkdownTheme,
   type SelectItem,
@@ -44,6 +45,7 @@ export interface InteractiveTuiOptions {
   addProvider(provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses" }): Promise<string>;
   listRoleConfigs(): Promise<Array<{ role: string; provider: string; model: string }>>;
   configureRole(role: string, provider: string, model: string): Promise<string>;
+  setupReport(): Promise<string>;
 }
 
 class FuseAutocompleteProvider implements AutocompleteProvider {
@@ -120,6 +122,20 @@ const markdownTheme: MarkdownTheme = {
   codeBlockIndent: "  ",
 };
 
+class RightAlignedText implements Component {
+  private text = "";
+
+  setText(text: string): void {
+    this.text = text;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    return [`${" ".repeat(Math.max(0, width - this.text.length - 1))}${dim(this.text)}`];
+  }
+}
+
 export class InteractiveTui {
   private readonly options: InteractiveTuiOptions;
   private readonly tui: TUI;
@@ -129,6 +145,7 @@ export class InteractiveTui {
   private readonly todos = new Text();
   private readonly status = new Text();
   private readonly help = new Text();
+  private readonly modeFooter = new RightAlignedText();
   private readonly loader: Loader;
   private readonly editor: Editor;
   private busy = false;
@@ -162,6 +179,7 @@ export class InteractiveTui {
     this.help.setText(dim("Enter отправить · Tab подсказки · Ctrl+K команды · Esc закрыть · Ctrl+C выход"));
     this.root.addChild(this.help);
     this.root.addChild(this.editor);
+    this.root.addChild(this.modeFooter);
     this.tui.addChild(this.root);
     this.tui.setFocus(this.editor);
     this.tui.addInputListener((data) => {
@@ -339,7 +357,10 @@ export class InteractiveTui {
       this.editor.addToHistory(input);
       this.editor.setText("");
       try {
-        if (/^\/(?:provider|setup)\s*$/i.test(value)) await this.showProviderPicker();
+        if (/^\/setup\s*$/i.test(value)) {
+          this.appendMessage("system", await this.options.setupReport());
+          await this.showProviderPicker();
+        } else if (/^\/provider\s*$/i.test(value)) await this.showProviderPicker();
         else if (/^\/roles\s*$/i.test(value)) await this.showRolePicker();
         else await this.showSessionPicker();
       } catch (error) {
@@ -734,6 +755,7 @@ export class InteractiveTui {
     const session = this.options.getSession();
     const mode = this.options.getMode();
     this.header.setText(`${boldCyan("FUSE")}  ${cyan(mode.toUpperCase())}  ${yellow(this.options.getProvider())}  ${dim(session.id.slice(0, 8))}  ${white(session.title)}`);
+    this.modeFooter.setText(`РЕЖИМ: ${mode.toUpperCase()}`);
   }
 
   private setStatus(message: string, color: (text: string) => string): void {

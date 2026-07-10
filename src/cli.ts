@@ -504,6 +504,33 @@ async function main(): Promise<void> {
     if (/\bkimi\b/i.test(model)) config.roles[typedRole].temperature = 1;
     return `${typedRole}: ${providerName} / ${model}. Конфигурация сохранена в ${file}.`;
   };
+  const setupReport = async (): Promise<string> => {
+    const [git, localProviders, ctags] = await Promise.all([
+      gitVersion(),
+      discoverLocalProviders(),
+      config.codeIndex.enabled && config.codeIndex.backend !== "builtin" ? getCtagsStatus() : Promise.resolve(undefined),
+    ]);
+    const lines = [
+      "# Fuse setup",
+      `${isSupportedNodeVersion(process.version) ? "[x]" : "[!]"} Node.js ${process.version}`,
+      `${git ? "[x]" : "[!]"} ${git ?? "Git не найден"}`,
+      ...(localProviders.length
+        ? localProviders.flatMap((provider) => {
+          const codeModel = provider.models.find((model) => /(?:coder|code|devstral|deepseek)/i.test(model));
+          return [
+            `[x] ${provider.label}: ${provider.models.length} моделей`,
+            `    ${provider.models.slice(0, 6).join(", ") || "модели не найдены"}${provider.models.length > 6 ? ", ..." : ""}`,
+            `${codeModel ? "[x]" : "[!]"} ${provider.label}: ${codeModel ? `найдена code-модель ${codeModel}` : "code-модель не найдена"}`,
+          ];
+        })
+        : ["[!] Ollama и LM Studio на стандартных портах не найдены"]),
+      ...(ctags ? [`${ctags.available ? "[x]" : "[!]"} Symbol index: ${ctags.detail}`] : []),
+      `[x] Конфигурация: ${options.configPath ?? path.join(options.workspace, "jevio.config.json")}`,
+      `[x] Настроенные провайдеры: ${Object.keys(config.providers).join(", ")}`,
+      "\nВыберите провайдер или добавьте новый в следующем окне.",
+    ];
+    return lines.join("\n");
+  };
   let finalization: Promise<void> | undefined;
   const finalizeSession = (): Promise<void> => {
     if (!finalization) {
@@ -801,6 +828,7 @@ async function main(): Promise<void> {
           model: settings.model,
         })),
         configureRole,
+        setupReport,
       });
       tui.setTodos(active.todos);
       await tui.run();
