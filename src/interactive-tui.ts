@@ -336,16 +336,21 @@ export class InteractiveTui {
     overlay.addChild(new Text(boldCyan("Saved sessions\n"), 1, 1));
     overlay.addChild(list);
     const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "60%", anchor: "center", margin: 2 });
-    list.onSelect = (item) => void this.resumeFromPicker(item.value, handle);
-    list.onCancel = () => {
+    const close = () => {
       handle.hide();
+      this.dismissOverlay = undefined;
       this.tui.setFocus(this.editor);
     };
+    this.dismissOverlay = close;
+    list.onSelect = (item) => {
+      close();
+      void this.resumeFromPicker(item.value);
+    };
+    list.onCancel = close;
+    this.tui.setFocus(list);
   }
 
-  private async resumeFromPicker(id: string, handle: { hide(): void }): Promise<void> {
-    handle.hide();
-    this.tui.setFocus(this.editor);
+  private async resumeFromPicker(id: string): Promise<void> {
     this.busy = true;
     this.editor.disableSubmit = true;
     this.loader.setMessage("Loading session");
