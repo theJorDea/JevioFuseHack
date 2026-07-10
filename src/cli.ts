@@ -106,6 +106,7 @@ const INTERACTIVE_HELP = `Команды сессии:
   /memory add <text>           Добавить запись в память проекта
   /memory status               Проверить подключение Cognee
   /memory sync                 Синхронизировать MEMORY.md с Cognee
+  /memory improve              Обогатить граф памяти Cognee
   /memory clear                Очистить память проекта
   /help                        Показать команды
   /exit                        Выйти
@@ -323,7 +324,7 @@ async function doctor(options: CliOptions): Promise<void> {
   const memory = new CogneeMemory(config.memory.cognee, options.workspace);
   if (memory.enabled) {
     const status = await memory.status();
-    if (status.available) console.log(`OK   Cognee memory: ${status.detail}; dataset ${status.dataset}`);
+    if (status.available) console.log(`OK   Cognee memory: ${status.detail}; dataset ${status.dataset}; pipeline ${status.pipelineStatus ?? "unknown"}`);
     else {
       console.log(`FAIL Cognee memory: ${status.detail}`);
       failures += 1;
@@ -897,6 +898,7 @@ async function main(): Promise<void> {
             `Markdown: ${context.projectMemory?.trim() ? "loaded" : "empty"}`,
             `Cognee: ${status.enabled ? (status.available ? "connected" : "unavailable") : "disabled"}`,
             `Dataset: ${status.dataset}`,
+            `Pipeline: ${status.pipelineStatus ?? "unknown"}`,
             `Detail: ${status.detail}`,
           ].join("\n"),
         };
@@ -906,6 +908,15 @@ async function main(): Promise<void> {
         const document = await loadProjectMemory(options.workspace);
         const warning = await rememberCognee(document, "MEMORY.md");
         return { output: warning ?? `MEMORY.md synchronized with Cognee dataset ${cogneeMemory.dataset}.` };
+      }
+      if (parts[0] === "improve") {
+        if (!cogneeMemory.enabled) return { output: "Cognee memory is disabled in jevio.config.json." };
+        try {
+          await cogneeMemory.improve();
+          return { output: `Cognee improvement started for dataset ${cogneeMemory.dataset}.` };
+        } catch (error) {
+          return { output: `Cognee improvement failed: ${(error as Error).message}` };
+        }
       }
       if (parts[0] === "add") {
         const entry = parts.slice(1).join(" ").trim();

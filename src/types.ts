@@ -32,6 +32,7 @@ export interface CodeIndexConfig {
 export interface CogneeMemoryConfig {
   enabled: boolean;
   baseUrl: string;
+  baseUrlEnv?: string;
   apiKeyEnv?: string;
   authMode: "x-api-key" | "bearer";
   dataset?: string;

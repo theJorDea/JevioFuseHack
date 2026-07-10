@@ -2,7 +2,8 @@
   "memory": {
     "cognee": {
       "enabled": true,
-      "baseUrl": "${COGNEE_BASE_URL}",
+      "baseUrl": "http://localhost:8000",
+      "baseUrlEnv": "COGNEE_BASE_URL",
       "apiKeyEnv": "COGNEE_API_KEY",
       "authMode": "x-api-key",
       "dataset": "agent_sessions",

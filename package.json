@@ -16,6 +16,7 @@
   "scripts": {
     "start": "node src/cli.ts",
     "test": "node --test --test-isolation=none test/*.test.ts",
+    "test:cloud": "node --test --test-isolation=none test/cloud-memory.integration.ts",
     "check": "node --check src/cli.ts"
   },
   "engines": {

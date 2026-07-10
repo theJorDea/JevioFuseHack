@@ -50,6 +50,34 @@ test("Cognee remember uploads Markdown into the project dataset", async () => {
   assert.equal(await (body?.get("data") as Blob).text(), "durable decision");
 });
 
+test("Cognee improve enriches the project dataset and bridges unique sessions", async () => {
+  let request: { url: string; body: Record<string, unknown> } | undefined;
+  const memory = new CogneeMemory(config(), process.cwd(), async (input, init) => {
+    request = { url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> };
+    return new Response("{}", { status: 200 });
+  });
+  await memory.improve(["session-1", "session-1", " "]);
+  assert.equal(request?.url, "http://localhost:8000/api/v1/improve");
+  assert.deepEqual(request?.body, {
+    datasetName: "test-project",
+    runInBackground: true,
+    sessionIds: ["session-1"],
+  });
+});
+
+test("Cognee improve falls back to the legacy memify endpoint", async () => {
+  const urls: string[] = [];
+  const memory = new CogneeMemory(config(), process.cwd(), async (input) => {
+    const url = String(input);
+    urls.push(url);
+    return url.endsWith("/improve")
+      ? new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 })
+      : new Response("{}", { status: 200 });
+  });
+  await memory.improve();
+  assert.deepEqual(urls.map((url) => url.split("/").at(-1)), ["improve", "memify"]);
+});
+
 test("Cognee recall treats a missing project dataset as empty memory", async () => {
   const memory = new CogneeMemory(config(), process.cwd(), async () => new Response(JSON.stringify({
     error: "Search prerequisites not met",
@@ -83,6 +111,13 @@ test("Cognee recall falls back to the legacy search endpoint", async () => {
   assert.deepEqual(urls.map((url) => url.split("/").at(-1)), ["recall", "search"]);
 });
 
+test("Cognee recall reads context-shaped responses from the documented API", async () => {
+  const memory = new CogneeMemory(config(), process.cwd(), async () => new Response(JSON.stringify([
+    { context: "documented context" },
+  ]), { status: 200 }));
+  assert.equal(await memory.recall("documented response"), "documented context");
+});
+
 test("Cognee forget deletes only the matching project dataset", async () => {
   const urls: string[] = [];
   const memory = new CogneeMemory(config(), process.cwd(), async (input) => {
@@ -106,6 +141,30 @@ test("Cognee status reports missing configured credentials without a request", a
   });
   assert.match((await memory.status()).detail, /missing MISSING_COGNEE_TEST_KEY/);
   assert.equal(called, false);
+});
+
+test("Cognee status reports a missing configured base URL environment variable without a request", async () => {
+  const options = config();
+  options.baseUrlEnv = "MISSING_COGNEE_BASE_URL";
+  let called = false;
+  const memory = new CogneeMemory(options, process.cwd(), async () => {
+    called = true;
+    return new Response("{}", { status: 200 });
+  });
+  assert.match((await memory.status()).detail, /missing MISSING_COGNEE_BASE_URL/);
+  assert.equal(called, false);
+});
+
+test("Cognee status reports dataset pipeline readiness when supported", async () => {
+  const memory = new CogneeMemory(config(), process.cwd(), async (input) => {
+    const url = String(input);
+    if (url.endsWith("/health")) return new Response("{}", { status: 200 });
+    if (url.endsWith("/datasets")) {
+      return new Response(JSON.stringify({ datasets: [{ id: "project-id", name: "test-project" }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ "project-id": "DATASET_PROCESSING_COMPLETED" }), { status: 200 });
+  });
+  assert.equal((await memory.status()).pipelineStatus, "DATASET_PROCESSING_COMPLETED");
 });
 
 test("completed turn memory contains the request and result", () => {

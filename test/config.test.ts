@@ -51,16 +51,19 @@ test("loads and validates Cognee memory settings", async (t) => {
   t.after(() => rm(workspace, { recursive: true, force: true }));
   await mkdir(workspace, { recursive: true });
   await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
-    memory: { cognee: { enabled: true, baseUrl: "https://memory.example.test/api/v1", authMode: "bearer", maxResults: 3 } },
+    memory: { cognee: { enabled: true, baseUrl: "https://memory.example.test/api/v1", baseUrlEnv: "COGNEE_BASE_URL", authMode: "bearer", maxResults: 3 } },
   }));
   const config = await loadConfig(workspace);
   assert.equal(config.memory.cognee.enabled, true);
   assert.equal(config.memory.cognee.authMode, "bearer");
+  assert.equal(config.memory.cognee.baseUrlEnv, "COGNEE_BASE_URL");
   assert.equal(config.memory.cognee.maxResults, 3);
   assert.equal(config.memory.cognee.maxContextCharacters, 8000);
 
   await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({ memory: { cognee: { baseUrl: "file:///memory" } } }));
   await assert.rejects(() => loadConfig(workspace), /baseUrl/);
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({ memory: { cognee: { baseUrlEnv: "not valid" } } }));
+  await assert.rejects(() => loadConfig(workspace), /baseUrlEnv/);
 });
 
 test("adds a provider without writing its API key", async (t) => {

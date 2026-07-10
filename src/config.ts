@@ -94,6 +94,9 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
   }
   const cognee = { ...DEFAULT_CONFIG.memory.cognee, ...input.memory?.cognee } as CogneeMemoryConfig;
   if (!["x-api-key", "bearer"].includes(cognee.authMode)) throw new Error("Invalid memory.cognee.authMode.");
+  if (cognee.baseUrlEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cognee.baseUrlEnv)) {
+    throw new Error("memory.cognee.baseUrlEnv must be an environment variable name.");
+  }
   if (!Number.isFinite(cognee.timeoutMs) || cognee.timeoutMs <= 0) throw new Error("memory.cognee.timeoutMs must be positive.");
   if (!Number.isFinite(cognee.maxResults) || cognee.maxResults <= 0) throw new Error("memory.cognee.maxResults must be positive.");
   if (!Number.isFinite(cognee.maxContextCharacters) || cognee.maxContextCharacters <= 0) throw new Error("memory.cognee.maxContextCharacters must be positive.");
