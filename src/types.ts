@@ -1,7 +1,9 @@
 export type RoleName = "orchestrator" | "coder" | "architect" | "reviewer" | "compactor";
+export type SpecialistRoleName = "architect" | "coder" | "reviewer";
 
 export interface ProviderConfig {
   baseUrl: string;
+  // apiKey takes precedence over apiKeyEnv when both are present.
   apiKey?: string;
   apiKeyEnv?: string;
   headers?: Record<string, string>;
@@ -23,6 +25,16 @@ export interface CodeIndexConfig {
   maxResults: number;
   mapMaxCharacters: number;
 }
+
+export type PartialJevioConfig = {
+  defaultProvider?: string;
+  providers?: Record<string, Partial<ProviderConfig>>;
+  roles?: Partial<Record<RoleName, Partial<RoleConfig>>>;
+  agent?: Partial<JevioConfig["agent"]>;
+  compaction?: Partial<JevioConfig["compaction"]>;
+  codeIndex?: Partial<CodeIndexConfig>;
+  permissions?: Partial<JevioConfig["permissions"]>;
+};
 
 export interface JevioConfig {
   defaultProvider: string;
@@ -50,35 +62,68 @@ export interface JevioConfig {
   };
 }
 
+export interface JsonSchema {
+  type?: string | string[];
+  description?: string;
+  properties?: Record<string, JsonSchema>;
+  items?: JsonSchema;
+  required?: string[];
+  enum?: readonly unknown[];
+  additionalProperties?: boolean | JsonSchema;
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+}
+
 export interface ToolDefinition {
   type: "function";
   function: {
     name: string;
     description: string;
-    parameters: Record<string, unknown>;
+    parameters: JsonSchema;
   };
 }
 
 export interface ToolCall {
   id: string;
   name: string;
+  /** Raw JSON string passed to the tool executor. */
   arguments: string;
 }
 
-export type ChatMessage = Record<string, unknown> & {
-  role: "system" | "user" | "assistant" | "tool";
-};
+export interface ProviderToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export interface ProviderRawMessage {
+  role: "assistant";
+  content: string | null;
+  reasoning_content?: string;
+  tool_calls?: ProviderToolCall[];
+  [key: string]: unknown;
+}
+
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; tool_calls?: ProviderToolCall[] }
+  | { role: "tool"; content: string; tool_call_id: string; name?: string };
 
 export interface ModelResponse {
   content: string;
   toolCalls: ToolCall[];
-  rawMessage: ChatMessage;
+  rawMessage: ProviderRawMessage;
 }
 
-export interface ModelDelta {
-  type: "reasoning" | "text";
-  delta: string;
-}
+export type ModelDelta =
+  | { type: "reasoning"; delta: string }
+  | { type: "text"; delta: string };
 
 export interface ModelRequest {
   messages: ChatMessage[];
@@ -111,8 +156,9 @@ export interface ToolContext {
   confirm(message: string): Promise<boolean>;
   askUser?: (question: string, options: AskUserOption[]) => Promise<string>;
   updateTodos?: (items: TodoItem[]) => void | Promise<void>;
+  reportProgress?: (message: string) => void | Promise<void>;
   onWorkspaceChange?: () => void;
-  delegate?: (role: Exclude<RoleName, "orchestrator">, task: string) => Promise<string>;
+  delegate?: (role: SpecialistRoleName, task: string) => Promise<string>;
 }
 
 export interface AskUserOption {
@@ -128,5 +174,5 @@ export interface TodoItem {
 export interface AgentResult {
   content: string;
   turns: number;
-  delegatedRoles?: Exclude<RoleName, "orchestrator" | "compactor">[];
+  delegatedRoles?: SpecialistRoleName[];
 }

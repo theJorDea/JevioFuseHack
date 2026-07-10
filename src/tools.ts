@@ -400,6 +400,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     if (name === "report_progress") {
       const message = String(input.message ?? "").trim();
       if (!message) throw new Error("message must not be empty");
+      await context.reportProgress?.(message);
       return "Progress update shown to the user.";
     }
 

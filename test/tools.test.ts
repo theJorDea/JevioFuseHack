@@ -62,6 +62,20 @@ test("search reports relative paths and line numbers", async (t) => {
   );
 });
 
+test("report_progress forwards through the tool context", async () => {
+  let progress = "";
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+    reportProgress: (message) => { progress = message; },
+  };
+  assert.equal(await executeTool("report_progress", { message: "Inspecting files" }, context), "Progress update shown to the user.");
+  assert.equal(progress, "Inspecting files");
+});
+
 test("agents can ask the interactive user a structured question", async () => {
   let todos: Array<{ content: string; status: string }> = [];
   const context: ToolContext = {

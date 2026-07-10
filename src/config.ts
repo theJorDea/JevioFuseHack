@@ -1,6 +1,6 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { JevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
+import type { CodeIndexConfig, JevioConfig, PartialJevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
 
 const DEFAULT_CONFIG: JevioConfig = {
   defaultProvider: "ollama",
@@ -57,19 +57,28 @@ function expandEnvironment(value: unknown): unknown {
   return value;
 }
 
-function mergeConfig(input: Partial<JevioConfig>): JevioConfig {
+function validateRoleConfig(role: RoleName, config: RoleConfig): void {
+  if (config.temperature !== undefined && (!Number.isFinite(config.temperature) || config.temperature < 0 || config.temperature > 2)) {
+    throw new Error(`Invalid temperature for role '${role}': expected a number between 0 and 2.`);
+  }
+  if (config.maxTokens !== undefined && (!Number.isFinite(config.maxTokens) || config.maxTokens <= 0)) {
+    throw new Error(`Invalid maxTokens for role '${role}': expected a positive number.`);
+  }
+}
+
+function mergeConfig(input: PartialJevioConfig): JevioConfig {
   const roles = {} as Record<RoleName, RoleConfig>;
   for (const role of ["orchestrator", "coder", "architect", "reviewer", "compactor"] as RoleName[]) {
     roles[role] = { ...DEFAULT_CONFIG.roles[role], ...input.roles?.[role] };
+    validateRoleConfig(role, roles[role]);
   }
   return {
-    ...DEFAULT_CONFIG,
-    ...input,
-    providers: { ...DEFAULT_CONFIG.providers, ...input.providers },
+    defaultProvider: input.defaultProvider ?? DEFAULT_CONFIG.defaultProvider,
+    providers: { ...DEFAULT_CONFIG.providers, ...input.providers } as Record<string, ProviderConfig>,
     roles,
     agent: { ...DEFAULT_CONFIG.agent, ...input.agent },
     compaction: { ...DEFAULT_CONFIG.compaction, ...input.compaction },
-    codeIndex: { ...DEFAULT_CONFIG.codeIndex, ...input.codeIndex },
+    codeIndex: { ...DEFAULT_CONFIG.codeIndex, ...input.codeIndex } as CodeIndexConfig,
     permissions: { ...DEFAULT_CONFIG.permissions, ...input.permissions },
   };
 }
@@ -91,7 +100,7 @@ export async function findConfig(start: string): Promise<string | null> {
 export async function loadConfig(workspace: string, explicitPath?: string): Promise<JevioConfig> {
   const configPath = explicitPath ? path.resolve(explicitPath) : await findConfig(workspace);
   const config = configPath
-    ? mergeConfig(expandEnvironment(JSON.parse(await readFile(configPath, "utf8")) as Partial<JevioConfig>) as Partial<JevioConfig>)
+    ? mergeConfig(expandEnvironment(JSON.parse(await readFile(configPath, "utf8")) as PartialJevioConfig) as PartialJevioConfig)
     : structuredClone(DEFAULT_CONFIG);
   try {
     const secrets = JSON.parse(await readFile(path.join(workspace, ".jevio", "providers.json"), "utf8")) as {

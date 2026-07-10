@@ -1,10 +1,10 @@
 import type {
-  ChatMessage,
   ModelClient,
   ModelDelta,
   ModelRequest,
   ModelResponse,
   ProviderConfig,
+  ProviderRawMessage,
   RoleConfig,
   ToolCall,
 } from "../types.ts";
@@ -112,15 +112,20 @@ export class OpenAICompatibleClient implements ModelClient {
 
 function modelResponse(message: OpenAIMessage): ModelResponse {
   const toolCalls: ToolCall[] = (message.tool_calls ?? []).map((call, index) => ({
-      id: call.id ?? `call_${index}`,
-      name: call.function?.name ?? "",
-      arguments: call.function?.arguments ?? "{}",
-    })).filter((call) => call.name);
-  const rawMessage: ChatMessage = {
+    id: call.id ?? `call_${index}`,
+    name: call.function?.name ?? "",
+    arguments: call.function?.arguments ?? "{}",
+  })).filter((call) => call.name);
+  const providerToolCalls = toolCalls.map((call) => ({
+    id: call.id,
+    type: "function" as const,
+    function: { name: call.name, arguments: call.arguments },
+  }));
+  const rawMessage: ProviderRawMessage = {
     role: "assistant",
     content: message.content ?? "",
     ...(message.reasoning_content ? { reasoning_content: message.reasoning_content } : {}),
-    ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
+    ...(providerToolCalls.length ? { tool_calls: providerToolCalls } : {}),
   };
   return { content: message.content ?? "", toolCalls, rawMessage };
 }

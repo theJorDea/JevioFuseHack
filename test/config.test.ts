@@ -31,6 +31,16 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.codeIndex.backend, "auto");
 });
 
+test("rejects invalid role sampling limits", async (t) => {
+  const workspace = path.join(process.cwd(), `.tmp-test-config-invalid-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    roles: { coder: { model: "coder-test", temperature: 3 } },
+  }));
+  await assert.rejects(() => loadConfig(workspace), /temperature/);
+});
+
 test("adds a provider without writing its API key", async (t) => {
   const workspace = path.join(process.cwd(), `.tmp-test-config-provider-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));

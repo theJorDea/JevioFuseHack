@@ -7,6 +7,7 @@ import type {
   JevioConfig,
   ModelClient,
   RoleName,
+  SpecialistRoleName,
   ToolContext,
 } from "./types.ts";
 
@@ -105,16 +106,23 @@ export function pruneOldToolResults(messages: ChatMessage[], keepRecent: number)
 export async function runAgent(options: AgentOptions): Promise<AgentResult & { history: ChatMessage[] }> {
   const client = createClient(options.config, options.role);
   const previousHistory = options.history ?? [];
-  const delegatedRoles = new Set<Exclude<RoleName, "orchestrator" | "compactor">>();
-  const toolContext = options.role === "orchestrator" && options.toolContext.delegate
+  const delegatedRoles = new Set<SpecialistRoleName>();
+  const delegatedToolContext = options.role === "orchestrator" && options.toolContext.delegate
     ? {
       ...options.toolContext,
-      delegate: async (role: Exclude<RoleName, "orchestrator">, task: string) => {
+      delegate: async (role: SpecialistRoleName, task: string) => {
         delegatedRoles.add(role);
         return options.toolContext.delegate!(role, task);
       },
     }
     : options.toolContext;
+  const toolContext: ToolContext = {
+    ...delegatedToolContext,
+    reportProgress: async (message: string) => {
+      await options.toolContext.reportProgress?.(message);
+      options.onEvent?.({ type: "progress", role: options.role, detail: message.trim().slice(0, 500) });
+    },
+  };
   const userMessage: ChatMessage = { role: "user", content: options.task };
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(options.role, toolContext) },
@@ -135,7 +143,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
       options.onEvent?.({ type: "thinking_delta", role: options.role, detail: delta.delta });
     });
     if (receivedThinking) options.onEvent?.({ type: "thinking_done", role: options.role, detail: "" });
-    messages.push(response.rawMessage);
+    messages.push({
+      role: "assistant",
+      content: response.rawMessage.content ?? response.content,
+      ...(response.rawMessage.tool_calls ? { tool_calls: response.rawMessage.tool_calls } : {}),
+    });
 
     if (!response.toolCalls.length) {
       const content = response.content.trim() || "The model returned an empty response.";
@@ -156,9 +168,6 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
         if (call.name === "web_search") {
           webSearchCalls += 1;
           if (webSearchCalls > 2) throw new Error("Web search limit reached for this task. Use the existing results or continue implementation.");
-        }
-        if (call.name === "report_progress" && typeof input.message === "string") {
-          options.onEvent?.({ type: "progress", role: options.role, detail: input.message.trim().slice(0, 500) });
         }
         output = await executeTool(call.name, input, toolContext);
       } catch (error) {
