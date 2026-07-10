@@ -590,6 +590,7 @@ async function main(): Promise<void> {
     }
     if (active.info.title === NEW_SESSION_TITLE) await renameSession(active.info, task.split(/\r?\n/)[0].slice(0, 80));
     if (mode === "council-plan") {
+      const mutationsBefore = workspaceMutationCount;
       const result = await runCouncilPlan({
         task,
         config,
@@ -597,6 +598,9 @@ async function main(): Promise<void> {
         history,
         onEvent: reportEvent,
       });
+      if (isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
+        throw new Error("Council coder finished without modifying the workspace.");
+      }
       const content = `${result.content}\n\nВыбранный план совета:\n${result.plan}\n\nРевью:\n${result.review}`;
       await appendSessionCouncil(active.info, "plan", [
         "# Council Plan",
@@ -625,6 +629,7 @@ async function main(): Promise<void> {
       return result.content;
     }
     if (mode === "team") {
+      const mutationsBefore = workspaceMutationCount;
       const result = await runTeam({
         task,
         config,
@@ -632,6 +637,9 @@ async function main(): Promise<void> {
         history,
         onEvent: reportEvent,
       });
+      if (isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
+        throw new Error("Team coder finished without modifying the workspace.");
+      }
       const content = `${result.content}\n\nReview:\n${result.review}`;
       history = [...history, { role: "user", content: task }, { role: "assistant", content }];
       await appendSessionTurn(active.info, task, content);
@@ -640,6 +648,9 @@ async function main(): Promise<void> {
     const role = mode === "direct" ? "coder" : "orchestrator";
     const mutationsBefore = workspaceMutationCount;
     const result = await runAgent({ role, task, config, toolContext: context, history, onEvent: reportEvent });
+    if (role === "coder" && isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
+      throw new Error("Coder finished without modifying the workspace.");
+    }
     if (role === "orchestrator" && isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
       reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because the workspace was not modified." });
       const coder = await runAgent({
@@ -673,7 +684,9 @@ async function main(): Promise<void> {
     const review = await loadLatestCouncilReview(active.info);
     if (!review) throw new Error("В текущей сессии нет Council Review. Сначала запустите jevio review --council.");
     const task = `Исправь только подтвержденные judge findings из Council Review ниже. Не меняй несвязанный код. После исправлений запусти релевантные проверки и кратко перечисли их результаты.\n\n${review}`;
+    const mutationsBefore = workspaceMutationCount;
     const result = await runAgent({ role: "coder", task, config, toolContext: context, history, onEvent: reportEvent });
+    if (workspaceMutationCount === mutationsBefore) throw new Error("Coder finished without modifying the workspace.");
     history = result.history;
     await appendSessionTurn(active.info, "/fix-review", result.content);
     return result.content;
