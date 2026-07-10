@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { createInterface, type Interface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { runAgent, type AgentEvent } from "./agent.ts";
 import {
   compactConversation,
@@ -35,10 +37,11 @@ import { discoverSkills } from "./skills.ts";
 import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol-index.ts";
 import { InteractiveTui } from "./interactive-tui.ts";
 import { isImplementationRequest } from "./task-intent.ts";
+import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "./setup.ts";
 import type { ChatMessage, ToolContext } from "./types.ts";
 
 interface CliOptions {
-  command: "run" | "init" | "doctor" | "skills" | "review" | "help";
+  command: "run" | "init" | "setup" | "doctor" | "skills" | "review" | "help";
   task: string;
   workspace: string;
   configPath?: string;
@@ -57,6 +60,7 @@ const HELP = `Jevio - local-first coding agent
 Usage:
   jevio [options] [task]       Запустить задачу; без задачи открыть интерактивный режим
   jevio init                   Создать jevio.config.json и стартовый skill
+  jevio setup                  Настроить локального провайдера в интерактивном режиме
   jevio doctor                 Проверить конфигурацию и endpoints моделей
   jevio skills                 Показать найденные skills проекта
 
@@ -112,7 +116,7 @@ function parseArgs(argv: string[]): CliOptions {
   const taskParts: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (index === 0 && ["init", "doctor", "skills", "review"].includes(argument)) {
+    if (index === 0 && ["init", "setup", "doctor", "skills", "review"].includes(argument)) {
       options.command = argument as CliOptions["command"];
     } else if (argument === "--help" || argument === "-h") {
       options.command = "help";
@@ -198,6 +202,88 @@ Replace this text with concrete instructions the coding agent should follow for 
 Keep the skill focused, actionable, and explicit about when it applies.
 `, "utf8");
   console.log(`Created ${path.relative(process.cwd(), configTarget)} and starter skill.`);
+}
+
+const execFileAsync = promisify(execFile);
+
+async function gitVersion(): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["--version"], { windowsHide: true });
+    return String(stdout).trim();
+  } catch {
+    return null;
+  }
+}
+
+async function chooseSetupItem(terminal: Interface, title: string, items: string[], defaultIndex = 0): Promise<number> {
+  process.stdout.write(`\n${title}\n`);
+  items.forEach((item, index) => process.stdout.write(`  ${index + 1}. ${item}${index === defaultIndex ? " (по умолчанию)" : ""}\n`));
+  while (true) {
+    const answer = (await terminal.question(`Выбор [${defaultIndex + 1}]: `)).trim();
+    if (!answer) return defaultIndex;
+    const selected = Number.parseInt(answer, 10) - 1;
+    if (Number.isInteger(selected) && selected >= 0 && selected < items.length) return selected;
+    process.stdout.write("Введите номер из списка.\n");
+  }
+}
+
+async function setup(options: CliOptions): Promise<string | undefined> {
+  process.stdout.write("\nFuse setup\n\n");
+  const nodeVersion = process.version;
+  process.stdout.write(`${isSupportedNodeVersion(nodeVersion) ? "OK" : "WARN"}   Node.js ${nodeVersion}${isSupportedNodeVersion(nodeVersion) ? "" : "; рекомендуется 22.19 или новее"}\n`);
+  const git = await gitVersion();
+  process.stdout.write(`${git ? "OK" : "WARN"}   ${git ?? "Git не найден; git diff и часть ревью будут недоступны"}\n`);
+
+  const configPath = options.configPath ? path.resolve(options.configPath) : path.join(options.workspace, "jevio.config.json");
+  if (await exists(configPath)) {
+    process.stdout.write(`\nКонфигурация уже существует: ${configPath}\nЗапускаю doctor без перезаписи.\n`);
+    await doctor(options);
+    return undefined;
+  }
+  if (!process.stdin.isTTY) throw new Error("jevio setup requires an interactive terminal.");
+
+  const terminal = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    process.stdout.write("\nИщу Ollama и LM Studio...\n");
+    const candidates = await discoverLocalProviders();
+    const providerItems = [
+      ...candidates.map((candidate) => `${candidate.label} (${candidate.models.length} моделей)`),
+      "Другой OpenAI-compatible endpoint",
+    ];
+    const providerIndex = await chooseSetupItem(terminal, "Выберите провайдера", providerItems);
+    const selected = candidates[providerIndex];
+    const provider = selected ?? {
+      name: "custom",
+      label: "Custom",
+      baseUrl: (await terminal.question("Base URL (например, http://localhost:8080/v1): ")).trim(),
+      models: [],
+    };
+    if (!provider.baseUrl) throw new Error("Base URL is required.");
+
+    let model: string;
+    if (provider.models.length) {
+      const fallback = defaultModel(provider.models) ?? provider.models[0];
+      const modelIndex = await chooseSetupItem(terminal, "Доступные модели", provider.models, Math.max(0, provider.models.indexOf(fallback)));
+      model = provider.models[modelIndex];
+    } else {
+      model = (await terminal.question("ID модели: ")).trim();
+      if (!model) throw new Error("Model ID is required.");
+    }
+
+    const file = await addProviderConfig(options.workspace, options.configPath, {
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      model,
+    });
+    process.stdout.write(`\nГотово: ${file}\nПровайдер: ${provider.label}; модель: ${model}\n\nПроверка конфигурации:\n`);
+    await doctor(options);
+    const runDemo = (await terminal.question("\nЗапустить безопасную демо-задачу для проверки модели? [Y/n] ")).trim();
+    return /^(?:|y|yes|д|да)$/i.test(runDemo)
+      ? "Осмотри этот репозиторий, кратко опиши его структуру, доступные команды проверки и одну безопасную следующую задачу. Не изменяй файлы."
+      : undefined;
+  } finally {
+    terminal.close();
+  }
 }
 
 async function makeContext(options: CliOptions, confirm: ToolContext["confirm"]): Promise<{ config: Awaited<ReturnType<typeof loadConfig>>; context: ToolContext }> {
@@ -300,6 +386,12 @@ async function main(): Promise<void> {
   if (options.command === "init") {
     await initialize(options.workspace);
     return;
+  }
+  if (options.command === "setup") {
+    const demoTask = await setup(options);
+    if (!demoTask) return;
+    options.command = "run";
+    options.task = demoTask;
   }
   if (options.command === "doctor") {
     await doctor(options);
