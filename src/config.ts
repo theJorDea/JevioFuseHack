@@ -135,7 +135,7 @@ export async function saveProviderSecret(workspace: string, name: string, apiKey
 export async function addProviderConfig(
   workspace: string,
   explicitPath: string | undefined,
-  provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string },
+  provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string; transport?: "chat_completions" | "responses" },
 ): Promise<string> {
   const name = provider.name.trim();
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name)) throw new Error("Provider name must start with a letter and use only letters, numbers, _ or -.");
@@ -165,6 +165,8 @@ export async function addProviderConfig(
     : {};
   providers[name] = {
     baseUrl: baseUrl.toString().replace(/\/$/, ""),
+    defaultModel: model,
+    ...(provider.transport && provider.transport !== "chat_completions" ? { transport: provider.transport } : {}),
     ...(apiKeyEnv ? { apiKeyEnv } : {}),
   };
   input.providers = providers;
@@ -181,6 +183,45 @@ export async function addProviderConfig(
   }
   input.roles = roles;
   input.defaultProvider = name;
+  await writeFile(target, `${JSON.stringify(input, null, 2)}\n`, "utf8");
+  return target;
+}
+
+export async function setRoleProviderConfig(
+  workspace: string,
+  explicitPath: string | undefined,
+  role: RoleName,
+  providerName: string,
+  model: string,
+): Promise<string> {
+  const target = explicitPath ? path.resolve(explicitPath) : (await findConfig(workspace)) ?? path.join(workspace, "jevio.config.json");
+  let input: Record<string, unknown> = {};
+  try {
+    input = JSON.parse(await readFile(target, "utf8")) as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const loaded = await loadConfig(workspace, explicitPath);
+  const selectedProvider = loaded.providers[providerName];
+  if (!selectedProvider) throw new Error(`Unknown provider '${providerName}'.`);
+  const providers = input.providers && typeof input.providers === "object" && !Array.isArray(input.providers)
+    ? input.providers as Record<string, unknown>
+    : {};
+  providers[providerName] = {
+    ...(providers[providerName] && typeof providers[providerName] === "object" && !Array.isArray(providers[providerName])
+      ? providers[providerName] as Record<string, unknown>
+      : {}),
+    baseUrl: selectedProvider.baseUrl,
+    ...(selectedProvider.transport ? { transport: selectedProvider.transport } : {}),
+    ...(selectedProvider.defaultModel ? { defaultModel: selectedProvider.defaultModel } : {}),
+    ...(selectedProvider.apiKeyEnv ? { apiKeyEnv: selectedProvider.apiKeyEnv } : {}),
+  };
+  input.providers = providers;
+  const roles = input.roles && typeof input.roles === "object" && !Array.isArray(input.roles)
+    ? input.roles as Record<string, Record<string, unknown>>
+    : {};
+  roles[role] = { ...roles[role], provider: providerName, model };
+  input.roles = roles;
   await writeFile(target, `${JSON.stringify(input, null, 2)}\n`, "utf8");
   return target;
 }

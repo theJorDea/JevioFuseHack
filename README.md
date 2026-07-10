@@ -221,6 +221,44 @@ prefix, чтобы команда jevio выбрала jevio.cmd.
       }
     }
 
+Провайдер и модель задаются отдельно для каждой роли. Например, можно оставить
+локальную модель для оркестрации, назначить сильную API-модель только `coder`, а
+недорогую модель через другой провайдер для `reviewer` и `compactor`:
+
+    {
+      "defaultProvider": "ollama",
+      "providers": {
+        "ollama": { "baseUrl": "http://localhost:11434/v1" },
+        "openrouter": {
+          "baseUrl": "https://openrouter.ai/api/v1",
+          "apiKeyEnv": "OPENROUTER_API_KEY",
+          "defaultModel": "openai/gpt-5.2"
+        },
+        "nvidia-nim": {
+          "baseUrl": "https://integrate.api.nvidia.com/v1",
+          "apiKeyEnv": "NVIDIA_API_KEY",
+          "defaultModel": "openai/gpt-oss-20b"
+        },
+        "openai-codex": {
+          "baseUrl": "https://api.openai.com/v1",
+          "transport": "responses",
+          "apiKeyEnv": "OPENAI_API_KEY",
+          "defaultModel": "gpt-5.2-codex"
+        }
+      },
+      "roles": {
+        "orchestrator": { "provider": "ollama", "model": "qwen3:14b" },
+        "architect": { "provider": "openrouter", "model": "openai/gpt-5.2" },
+        "coder": { "provider": "openai-codex", "model": "gpt-5.2-codex" },
+        "reviewer": { "provider": "nvidia-nim", "model": "openai/gpt-oss-20b" }
+      }
+    }
+
+В TUI используйте `/provider` для добавления пресетов OpenRouter, NVIDIA NIM или
+OpenAI Codex API, затем `/roles`, чтобы назначить отдельные provider/model каждой
+роли. OpenAI Codex API требует отдельный `OPENAI_API_KEY`: авторизация по
+подписке ChatGPT в Fuse не используется.
+
 Одновременно держать все модели в VRAM не требуется: вызовы выполняются
 последовательно. Для небольших локальных моделей чаще лучше использовать
 --direct, а ревью включать только для рискованных изменений.

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { addProviderConfig, loadConfig, saveProviderSecret } from "../src/config.ts";
+import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "../src/config.ts";
 
 test("loads partial config, expands environment, and fills role defaults", async (t) => {
   const workspace = path.join(process.cwd(), `.tmp-test-config-${process.pid}-${Date.now()}`);
@@ -56,7 +56,7 @@ test("adds a provider without writing its API key", async (t) => {
     providers: { cloud: { baseUrl: string; apiKeyEnv: string } };
     roles: { coder: { provider: string; model: string } };
   };
-  assert.deepEqual(saved.providers.cloud, { baseUrl: "https://api.example.test/v1", apiKeyEnv: "CLOUD_API_KEY" });
+  assert.deepEqual(saved.providers.cloud, { baseUrl: "https://api.example.test/v1", apiKeyEnv: "CLOUD_API_KEY", defaultModel: "cloud-code-model" });
   assert.deepEqual(saved.roles.coder, { provider: "cloud", model: "cloud-code-model" });
 });
 
@@ -72,4 +72,26 @@ test("loads a direct provider key from the ignored local secrets file", async (t
   });
   await saveProviderSecret(workspace, "cloud", "sk-direct-key");
   assert.equal((await loadConfig(workspace)).providers.cloud.apiKey, "sk-direct-key");
+});
+
+test("assigns a provider and model to one role without losing provider headers", async (t) => {
+  const workspace = path.join(process.cwd(), `.tmp-test-config-role-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    providers: {
+      cloud: {
+        baseUrl: "https://api.example.test/v1",
+        defaultModel: "cloud-default",
+        headers: { "x-client": "fuse" },
+      },
+    },
+  }));
+  await setRoleProviderConfig(workspace, undefined, "reviewer", "cloud", "cloud-review");
+  const saved = JSON.parse(await readFile(path.join(workspace, "jevio.config.json"), "utf8")) as {
+    providers: { cloud: { headers: Record<string, string> } };
+    roles: { reviewer: { provider: string; model: string } };
+  };
+  assert.deepEqual(saved.roles.reviewer, { provider: "cloud", model: "cloud-review" });
+  assert.deepEqual(saved.providers.cloud.headers, { "x-client": "fuse" });
 });

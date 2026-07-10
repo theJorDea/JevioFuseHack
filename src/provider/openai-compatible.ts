@@ -37,6 +37,20 @@ interface BufferedToolCall {
   arguments: string;
 }
 
+interface ResponsesOutput {
+  type?: string;
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  content?: Array<{ type?: string; text?: string }>;
+}
+
+interface ResponsesResponse {
+  output?: ResponsesOutput[];
+  output_text?: string;
+  error?: { message?: string };
+}
+
 function appendToolName(current: string, fragment: string): string {
   if (!current || fragment.startsWith(current)) return fragment;
   if (current.endsWith(fragment)) return current;
@@ -59,6 +73,7 @@ export class OpenAICompatibleClient implements ModelClient {
   }
 
   async complete(request: ModelRequest, onDelta?: (delta: ModelDelta) => void): Promise<ModelResponse> {
+    if (this.#provider.transport === "responses") return this.completeResponses(request, onDelta);
     const apiKey = this.#provider.apiKey
       ?? (this.#provider.apiKeyEnv ? process.env[this.#provider.apiKeyEnv] : undefined);
     if (this.#provider.apiKeyEnv && !apiKey) {
@@ -107,6 +122,72 @@ export class OpenAICompatibleClient implements ModelClient {
 
     if (!response.body) throw new Error("Model endpoint returned an empty streaming response.");
     return streamResponse(response.body, onDelta);
+  }
+
+  private async completeResponses(request: ModelRequest, onDelta?: (delta: ModelDelta) => void): Promise<ModelResponse> {
+    const apiKey = this.#provider.apiKey
+      ?? (this.#provider.apiKeyEnv ? process.env[this.#provider.apiKeyEnv] : undefined);
+    if (this.#provider.apiKeyEnv && !apiKey) {
+      throw new Error(`Environment variable ${this.#provider.apiKeyEnv} is not set.`);
+    }
+    const instructions = request.messages.filter((message) => message.role === "system")
+      .map((message) => message.content).join("\n\n");
+    const input = request.messages.flatMap((message) => {
+      if (message.role === "system") return [];
+      if (message.role === "tool") return [{ type: "function_call_output", call_id: message.tool_call_id, output: message.content }];
+      if (message.role === "assistant") {
+        return [
+          ...(message.content ? [{ role: "assistant", content: message.content }] : []),
+          ...(message.tool_calls ?? []).map((call) => ({
+            type: "function_call",
+            call_id: call.id,
+            name: call.function.name,
+            arguments: call.function.arguments,
+          })),
+        ];
+      }
+      return [{ role: message.role, content: message.content }];
+    });
+    const response = await fetch(`${this.#provider.baseUrl.replace(/\/$/, "")}/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        ...this.#provider.headers,
+      },
+      body: JSON.stringify({
+        model: this.#role.model,
+        ...(instructions ? { instructions } : {}),
+        input,
+        ...(request.tools?.length ? {
+          tools: request.tools.map((tool) => ({
+            type: "function",
+            name: tool.function.name,
+            description: tool.function.description,
+            parameters: tool.function.parameters,
+          })),
+        } : {}),
+        ...(request.maxTokens ?? this.#role.maxTokens ? { max_output_tokens: request.maxTokens ?? this.#role.maxTokens } : {}),
+      }),
+      signal: AbortSignal.timeout(10 * 60_000),
+    });
+    const text = await response.text();
+    let body: ResponsesResponse;
+    try {
+      body = JSON.parse(text) as ResponsesResponse;
+    } catch {
+      throw new Error(`Responses endpoint returned invalid JSON (${response.status}): ${text.slice(0, 500)}`);
+    }
+    if (!response.ok) throw new Error(body.error?.message ?? `Model request failed with HTTP ${response.status}.`);
+    const content = body.output_text ?? body.output?.flatMap((item) => item.type === "message"
+      ? (item.content ?? []).filter((part) => part.type === "output_text").map((part) => part.text ?? "")
+      : []).join("") ?? "";
+    const calls = (body.output ?? []).filter((item) => item.type === "function_call" && item.name).map((item, index) => ({
+      id: item.call_id ?? `call_${index}`,
+      function: { name: item.name!, arguments: item.arguments ?? "{}" },
+    }));
+    if (content) onDelta?.({ type: "text", delta: content });
+    return modelResponse({ content, ...(calls.length ? { tool_calls: calls } : {}) });
   }
 }
 

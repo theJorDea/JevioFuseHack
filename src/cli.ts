@@ -13,7 +13,7 @@ import {
   historyCharacters,
   needsAutoCompaction,
 } from "./compaction.ts";
-import { addProviderConfig, loadConfig, saveProviderSecret } from "./config.ts";
+import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "./config.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import {
   appendProjectMemory,
@@ -38,7 +38,7 @@ import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol
 import { InteractiveTui } from "./interactive-tui.ts";
 import { isImplementationRequest } from "./task-intent.ts";
 import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "./setup.ts";
-import type { ChatMessage, ToolContext } from "./types.ts";
+import type { ChatMessage, RoleName, ToolContext } from "./types.ts";
 
 interface CliOptions {
   command: "run" | "init" | "setup" | "doctor" | "skills" | "review" | "help";
@@ -89,6 +89,7 @@ const INTERACTIVE_HELP = `Команды сессии:
   /compact status              Показать настройки сжатия и оценку контекста
   /setup                       Настроить провайдера и модель для сессии
   /provider [name]             Показать или сменить провайдера для сессии
+  /roles                       Назначить отдельные провайдеры и модели ролям
   /team                        Использовать architect -> coder -> reviewer для следующих задач
   /council-plan                Совет архитекторов, затем coder и reviewer
   /council-review              Совет ревьюеров текущих изменений
@@ -470,10 +471,12 @@ async function main(): Promise<void> {
     for (const role of Object.values(config.roles)) role.provider = name;
     return `Провайдер: ${name}. Применен ко всем ролям этой сессии; названия моделей ролей не изменены.`;
   };
-  const addProvider = async (provider: { name: string; baseUrl: string; apiKey?: string; model: string }): Promise<string> => {
+  const addProvider = async (provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses" }): Promise<string> => {
     const file = await addProviderConfig(options.workspace, options.configPath, provider);
     config.providers[provider.name] = {
       baseUrl: provider.baseUrl.replace(/\/$/, ""),
+      defaultModel: provider.model,
+      ...(provider.transport ? { transport: provider.transport } : {}),
       ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
     };
     for (const role of Object.values(config.roles)) {
@@ -484,6 +487,15 @@ async function main(): Promise<void> {
     config.defaultProvider = provider.name;
     const secretFile = provider.apiKey ? await saveProviderSecret(options.workspace, provider.name, provider.apiKey) : undefined;
     return `Провайдер: ${provider.name}; модель: ${provider.model}. Конфигурация сохранена в ${file}.${secretFile ? ` API-ключ сохранен локально в ${secretFile}.` : ""}`;
+  };
+  const configureRole = async (role: string, providerName: string, model: string): Promise<string> => {
+    if (!(role in config.roles)) throw new Error(`Unknown role '${role}'.`);
+    if (!config.providers[providerName]) throw new Error(`Unknown provider '${providerName}'.`);
+    const typedRole = role as RoleName;
+    const file = await setRoleProviderConfig(options.workspace, options.configPath, typedRole, providerName, model);
+    config.roles[typedRole] = { ...config.roles[typedRole], provider: providerName, model };
+    if (/\bkimi\b/i.test(model)) config.roles[typedRole].temperature = 1;
+    return `${typedRole}: ${providerName} / ${model}. Конфигурация сохранена в ${file}.`;
   };
   let finalization: Promise<void> | undefined;
   const finalizeSession = (): Promise<void> => {
@@ -740,9 +752,17 @@ async function main(): Promise<void> {
           name,
           baseUrl: provider.baseUrl,
           apiKeyEnv: provider.apiKeyEnv,
+          defaultModel: provider.defaultModel,
+          transport: provider.transport,
         })),
         selectProvider: async (name) => selectProvider(name),
         addProvider,
+        listRoleConfigs: async () => (Object.entries(config.roles) as Array<[RoleName, typeof config.roles[RoleName]]>).map(([role, settings]) => ({
+          role,
+          provider: settings.provider ?? config.defaultProvider,
+          model: settings.model,
+        })),
+        configureRole,
       });
       tui.setTodos(active.todos);
       await tui.run();

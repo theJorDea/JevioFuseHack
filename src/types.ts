@@ -3,6 +3,8 @@ export type SpecialistRoleName = "architect" | "coder" | "reviewer";
 
 export interface ProviderConfig {
   baseUrl: string;
+  transport?: "chat_completions" | "responses";
+  defaultModel?: string;
   // apiKey takes precedence over apiKeyEnv when both are present.
   apiKey?: string;
   apiKeyEnv?: string;

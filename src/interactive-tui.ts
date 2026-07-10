@@ -27,6 +27,8 @@ export interface TuiProvider {
   name: string;
   baseUrl: string;
   apiKeyEnv?: string;
+  defaultModel?: string;
+  transport?: "chat_completions" | "responses";
 }
 
 export interface InteractiveTuiOptions {
@@ -39,7 +41,9 @@ export interface InteractiveTuiOptions {
   getProvider(): string;
   listProviders(): Promise<TuiProvider[]>;
   selectProvider(name: string): Promise<string>;
-  addProvider(provider: { name: string; baseUrl: string; apiKey?: string; model: string }): Promise<string>;
+  addProvider(provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses" }): Promise<string>;
+  listRoleConfigs(): Promise<Array<{ role: string; provider: string; model: string }>>;
+  configureRole(role: string, provider: string, model: string): Promise<string>;
 }
 
 class FuseAutocompleteProvider implements AutocompleteProvider {
@@ -331,11 +335,12 @@ export class InteractiveTui {
       this.tui.requestRender();
       return;
     }
-    if (/^\/(?:sessions?|resume|provider|setup)(?:\s*)$/i.test(value)) {
+    if (/^\/(?:sessions?|resume|provider|setup|roles)(?:\s*)$/i.test(value)) {
       this.editor.addToHistory(input);
       this.editor.setText("");
       try {
         if (/^\/(?:provider|setup)\s*$/i.test(value)) await this.showProviderPicker();
+        else if (/^\/roles\s*$/i.test(value)) await this.showRolePicker();
         else await this.showSessionPicker();
       } catch (error) {
         this.appendMessage("error", getErrorMessage(error));
@@ -441,6 +446,15 @@ export class InteractiveTui {
       ...(!providers.some((provider) => provider.name === "kimi")
         ? [{ value: "__preset_kimi__", label: "Kimi Code", description: "api.kimi.com/coding/v1  Kimi K2.7" }]
         : []),
+      ...(!providers.some((provider) => provider.name === "openrouter")
+        ? [{ value: "__preset_openrouter__", label: "OpenRouter", description: "400+ моделей через OpenAI-compatible API" }]
+        : []),
+      ...(!providers.some((provider) => provider.name === "nvidia-nim")
+        ? [{ value: "__preset_nvidia_nim__", label: "NVIDIA NIM", description: "integrate.api.nvidia.com/v1" }]
+        : []),
+      ...(!providers.some((provider) => provider.name === "openai-codex")
+        ? [{ value: "__preset_openai_codex__", label: "OpenAI Codex API", description: "Responses API; нужен OpenAI API key" }]
+        : []),
       { value: "__add_provider__", label: "Добавить провайдера", description: "Configure an OpenAI-compatible endpoint" },
     ];
     const list = new SelectList(items, 10, selectTheme);
@@ -461,6 +475,22 @@ export class InteractiveTui {
         baseUrl: "https://api.kimi.com/coding/v1",
         model: "Kimi K2.7",
       });
+      else if (item.value === "__preset_openrouter__") this.showProviderForm({
+        name: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        model: "openai/gpt-5.2",
+      });
+      else if (item.value === "__preset_nvidia_nim__") this.showProviderForm({
+        name: "nvidia-nim",
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        model: "openai/gpt-oss-20b",
+      });
+      else if (item.value === "__preset_openai_codex__") this.showProviderForm({
+        name: "openai-codex",
+        baseUrl: "https://api.openai.com/v1",
+        model: "gpt-5.2-codex",
+        transport: "responses",
+      });
       else if (item.value === "__add_provider__") this.showProviderForm();
       else void this.chooseProvider(item.value);
     };
@@ -478,7 +508,7 @@ export class InteractiveTui {
     }
   }
 
-  private showProviderForm(preset: Partial<{ name: string; baseUrl: string; model: string }> = {}): void {
+  private showProviderForm(preset: Partial<{ name: string; baseUrl: string; model: string; transport: "chat_completions" | "responses" }> = {}): void {
     const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKey" | "model"; optional?: boolean; initial?: string }> = [
       { label: "Имя провайдера", key: "name", initial: preset.name },
       { label: "Базовый URL OpenAI-совместимого API", key: "baseUrl", initial: preset.baseUrl },
@@ -527,7 +557,7 @@ export class InteractiveTui {
         return;
       }
       close();
-      void this.saveProvider(values);
+      void this.saveProvider(values, preset.transport);
     };
     const handle = this.tui.showOverlay(overlay, { width: "70%", minWidth: 52, maxHeight: 8, anchor: "center", margin: 2 });
     this.dismissOverlay = close;
@@ -535,17 +565,91 @@ export class InteractiveTui {
     renderField();
   }
 
-  private async saveProvider(values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string }>): Promise<void> {
+  private async saveProvider(values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string }>, transport?: "chat_completions" | "responses"): Promise<void> {
     try {
       const name = values.name ?? "";
       const baseUrl = values.baseUrl ?? "";
-      const message = await this.options.addProvider({ name, baseUrl, apiKey: values.apiKey || undefined, model: values.model ?? "" });
+      const message = await this.options.addProvider({ name, baseUrl, apiKey: values.apiKey || undefined, model: values.model ?? "", transport });
       this.appendMessage("system", message);
       this.refreshHeader();
       this.setStatus("Готово", dim);
     } catch (error) {
       this.appendMessage("error", getErrorMessage(error));
     }
+  }
+
+  private async showRolePicker(): Promise<void> {
+    const roles = await this.options.listRoleConfigs();
+    const list = new SelectList(roles.map((role) => ({ value: role.role, label: role.role, description: `${role.provider} / ${role.model}` })), 8, selectTheme);
+    const overlay = modalSurface();
+    overlay.addChild(new Text(boldCyan("Настройка ролей\n"), 1, 1));
+    overlay.addChild(list);
+    const handle = this.tui.showOverlay(overlay, { width: "72%", minWidth: 52, maxHeight: "60%", anchor: "center", margin: 2 });
+    const close = () => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+    };
+    this.dismissOverlay = close;
+    list.onCancel = close;
+    list.onSelect = (item) => {
+      const role = roles.find((candidate) => candidate.role === item.value);
+      close();
+      if (role) void this.showRoleProviderPicker(role);
+    };
+    this.tui.setFocus(list);
+  }
+
+  private async showRoleProviderPicker(role: { role: string; provider: string; model: string }): Promise<void> {
+    const providers = await this.options.listProviders();
+    const list = new SelectList(providers.map((provider) => ({
+      value: provider.name,
+      label: provider.name === role.provider ? `> ${provider.name}` : provider.name,
+      description: provider.defaultModel ?? provider.baseUrl,
+    })), 9, selectTheme);
+    const overlay = modalSurface();
+    overlay.addChild(new Text(boldCyan(`${role.role}: провайдер\n`), 1, 1));
+    overlay.addChild(list);
+    const handle = this.tui.showOverlay(overlay, { width: "72%", minWidth: 52, maxHeight: "60%", anchor: "center", margin: 2 });
+    const close = () => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+    };
+    this.dismissOverlay = close;
+    list.onCancel = close;
+    list.onSelect = (item) => {
+      const provider = providers.find((candidate) => candidate.name === item.value);
+      close();
+      if (provider) this.showRoleModelForm(role.role, provider, role.model);
+    };
+    this.tui.setFocus(list);
+  }
+
+  private showRoleModelForm(role: string, provider: TuiProvider, currentModel: string): void {
+    const overlay = modalSurface();
+    const input = new Input();
+    overlay.addChild(new Text(boldCyan(`${role}: модель для ${provider.name}\n`), 1, 1));
+    overlay.addChild(input);
+    const handle = this.tui.showOverlay(overlay, { width: "72%", minWidth: 52, maxHeight: 7, anchor: "center", margin: 2 });
+    const close = () => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+    };
+    this.dismissOverlay = close;
+    input.setValue(provider.defaultModel ?? currentModel);
+    input.onEscape = close;
+    input.onSubmit = (value) => {
+      const model = value.trim();
+      if (!model) return;
+      close();
+      void this.options.configureRole(role, provider.name, model).then((message) => {
+        this.appendMessage("system", message);
+        this.refreshHeader();
+      }).catch((error) => this.appendMessage("error", getErrorMessage(error)));
+    };
+    this.tui.setFocus(input);
   }
 
   private appendMessage(label: MessageLabel, content: string): void {
