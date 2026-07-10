@@ -754,7 +754,7 @@ async function main(): Promise<void> {
       reportEvent({ type: "progress", role: "coder", detail: "Coder вернул текст без изменений. Повторяю запуск с обязательной записью файлов." });
       result = await runAgent({
         role: "coder",
-        task: `${task}\n\nThe previous response did not modify the workspace. Use the workspace write tools now, complete the requested changes, and run relevant checks. Do not return code blocks as a substitute for tool calls.\n\nPREVIOUS RESPONSE:\n${result.content}`,
+        task: `${task}\n\nThe previous response did not modify the workspace. Use native workspace tools now. If this model cannot emit native tool calls, return ONLY this fallback JSON (no Markdown): {"jevio_tool_calls":[{"name":"write_file","arguments":{"path":"relative/path","content":"complete file content"}}]}. You may include multiple calls. Jevio will execute them with normal permissions, then you can verify the results.\n\nPREVIOUS RESPONSE:\n${result.content}`,
         config,
         toolContext: context,
         history,

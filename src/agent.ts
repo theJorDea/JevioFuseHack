@@ -8,6 +8,7 @@ import type {
   ModelClient,
   RoleName,
   SpecialistRoleName,
+  ToolCall,
   ToolContext,
 } from "./types.ts";
 
@@ -45,7 +46,9 @@ their descriptions match the task. Run proportionate tests or checks after editi
 or edit succeeded unless its tool result confirms it. For requests that create or modify artifacts, use write
 tools to make the changes; do not return code for the user to copy instead. Do not return a plan, progress
 update, or a claim that implementation has started as the final answer: when the request requires files,
-your final answer is valid only after a successful write tool result. Finish with a concise summary and verification.`,
+your final answer is valid only after a successful write tool result. If a retry explicitly reports that native
+tool calls were not detected, return only a JSON object named jevio_tool_calls in the requested fallback
+format; never mix that object with Markdown. Finish with a concise summary and verification.`,
   reviewer: `You are the review agent. Inspect the actual diff and relevant surrounding code. Prioritize
 correctness, security, regressions, and missing tests over style. Run focused checks when useful. End with
 exactly one verdict marker: <verdict>PASS</verdict> when no fix is required, otherwise
@@ -109,6 +112,30 @@ function parseArguments(raw: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+export function parseFallbackToolCalls(content: string, allowedNames: Set<string>): ToolCall[] {
+  const fenced = [...content.matchAll(/```(?:json|jevio-tools)?\s*([\s\S]*?)```/giu)].map((match) => match[1].trim());
+  for (const candidate of [content.trim(), ...fenced]) {
+    if (!candidate.includes("jevio_tool_calls")) continue;
+    try {
+      const parsed = JSON.parse(candidate) as { jevio_tool_calls?: unknown };
+      if (!Array.isArray(parsed.jevio_tool_calls)) continue;
+      return parsed.jevio_tool_calls.slice(0, 12).flatMap((value, index) => {
+        if (!value || typeof value !== "object") return [];
+        const call = value as { name?: unknown; arguments?: unknown };
+        const name = typeof call.name === "string" ? call.name : "";
+        if (!allowedNames.has(name)) return [];
+        const argumentsJson = typeof call.arguments === "string"
+          ? call.arguments
+          : JSON.stringify(call.arguments ?? {});
+        return [{ id: `fallback_${index}`, name, arguments: argumentsJson }];
+      });
+    } catch {
+      // Try another fenced candidate when the surrounding response is not valid JSON.
+    }
+  }
+  return [];
+}
+
 export function pruneOldToolResults(messages: ChatMessage[], keepRecent: number): void {
   const toolMessages = messages.filter((message) => message.role === "tool");
   const pruneCount = Math.max(0, toolMessages.length - Math.max(0, Math.floor(keepRecent)));
@@ -163,7 +190,23 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
       ...(response.rawMessage.tool_calls ? { tool_calls: response.rawMessage.tool_calls } : {}),
     });
 
-    if (!response.toolCalls.length) {
+    const fallbackCalls = response.toolCalls.length
+      ? []
+      : parseFallbackToolCalls(response.content, new Set(tools.map((tool) => tool.function.name)));
+    const toolCalls = response.toolCalls.length ? response.toolCalls : fallbackCalls;
+    if (fallbackCalls.length) {
+      messages[messages.length - 1] = {
+        role: "assistant",
+        content: "",
+        tool_calls: fallbackCalls.map((call) => ({
+          id: call.id,
+          type: "function",
+          function: { name: call.name, arguments: call.arguments },
+        })),
+      };
+    }
+
+    if (!toolCalls.length) {
       const content = response.content.trim() || "The model returned an empty response.";
       return {
         content,
@@ -173,7 +216,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
       };
     }
 
-    for (const call of response.toolCalls) {
+    for (const call of toolCalls) {
       options.onEvent?.({ type: "tool", role: options.role, detail: `${call.name} (running)` });
       let output: string;
       let failed = false;

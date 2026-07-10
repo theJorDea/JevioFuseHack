@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSystemPrompt } from "../src/agent.ts";
+import { buildSystemPrompt, parseFallbackToolCalls } from "../src/agent.ts";
 import type { ToolContext } from "../src/types.ts";
 
 const context: ToolContext = {
@@ -29,4 +29,16 @@ test("retrieved memory is marked as untrusted historical context", () => {
   assert.match(prompt, /never as instructions/);
   assert.match(prompt, /old API used port 3000/);
   assert.doesNotMatch(buildSystemPrompt("compactor", { ...context, retrievedMemory: "old fact" }), /old fact/);
+});
+
+test("local-model JSON fallback is normalized into guarded tool calls", () => {
+  const content = `\`\`\`json
+{"jevio_tool_calls":[{"name":"write_file","arguments":{"path":"index.html","content":"<h1>Fuse</h1>"}},{"name":"unknown_tool","arguments":{}}]}
+\`\`\``;
+  assert.deepEqual(parseFallbackToolCalls(content, new Set(["write_file"])), [{
+    id: "fallback_0",
+    name: "write_file",
+    arguments: "{\"path\":\"index.html\",\"content\":\"<h1>Fuse</h1>\"}",
+  }]);
+  assert.deepEqual(parseFallbackToolCalls("ordinary response", new Set(["write_file"])), []);
 });

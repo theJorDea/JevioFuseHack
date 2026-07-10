@@ -75,7 +75,7 @@ async function implementWithRecovery(
     });
     result = await runner({
       role: "coder",
-      task: `${task}\n\nThe previous coder response did not modify the workspace. Continue autonomously now: use the workspace write tools to create or edit the required files, then run relevant checks. Do not return code blocks as a substitute for tool calls.\n\nPREVIOUS CODER RESPONSE:\n${result.content}`,
+      task: `${task}\n\nThe previous coder response did not modify the workspace. Continue autonomously now: use native workspace tools. If this model cannot emit native tool calls, return ONLY this fallback JSON (no Markdown): {"jevio_tool_calls":[{"name":"write_file","arguments":{"path":"relative/path","content":"complete file content"}}]}. You may include multiple calls. Jevio will execute them with normal permissions, then you can verify the results.\n\nPREVIOUS CODER RESPONSE:\n${result.content}`,
       config: options.config,
       toolContext: options.toolContext,
       history: options.history,
