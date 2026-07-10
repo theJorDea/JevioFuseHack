@@ -1,530 +1,392 @@
-# Jevio
+<div align="center">
+  <h1>Jevio</h1>
+  <h3>A local-first coding agent that remembers how your project works</h3>
+  <p>
+    Jevio routes software tasks across specialized models, keeps every side effect<br>
+    behind a permission gate, and uses Cognee to carry useful project knowledge across sessions.
+  </p>
+  <p>
+    <a href="https://nodejs.org/"><img alt="Node.js 22.19+" src="https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?logo=nodedotjs&amp;logoColor=white"></a>
+    <a href="https://www.cognee.ai/"><img alt="Cognee memory" src="https://img.shields.io/badge/memory-Cognee-6C63FF"></a>
+    <a href="#testing"><img alt="65 passing tests" src="https://img.shields.io/badge/tests-65%20passing-22A06B"></a>
+    <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-111111"></a>
+  </p>
+  <p><strong>Local models · cloud models · durable memory · multi-agent review · readable sessions</strong></p>
+</div>
 
-> **Hackathon TL;DR (English):** Jevio is a local-first coding agent that routes
-> work across specialized models while keeping durable, project-scoped memory.
-> Cognee is part of the model runtime, not a Codex dependency: Jevio recalls
-> relevant past decisions before each task, remembers concise successful outcomes,
-> improves the project knowledge graph on demand, and can forget only this
-> project's dataset. Markdown memory remains the inspectable source of truth.
+> **Hackathon project:** Jevio was built for *The Hangover Part AI: Where's My
+> Context?* Cognee is part of Jevio's model runtime—not a Codex dependency—and
+> implements the complete `remember → recall → improve → forget` lifecycle.
 
-### Two-minute Cognee demo
+<details>
+<summary><strong>Коротко по-русски</strong></summary>
 
-1. Export `COGNEE_BASE_URL` and `COGNEE_API_KEY`, then run `node src/cli.ts doctor`.
-2. Start `node src/cli.ts`, complete a small repository task, and wait until
-   `/memory status` shows `DATASET_PROCESSING_COMPLETED`.
-3. Start a new Jevio session and ask a related task. The event stream reports
-   `recalled relevant Cognee memory`, while the prompt treats it as untrusted
-   historical context and prefers the current repository state.
-4. Run `/memory improve` to enrich the graph. `/memory clear` demonstrates
-   dataset-scoped deletion without touching other projects.
+Jevio — локальный coding agent и оркестратор моделей. Он распределяет задачи
+между architect, coder, reviewer и judge, сохраняет читаемые Markdown-сессии и
+использует Cognee как семантическую память проекта. Перед каждой задачей модель
+получает релевантные прошлые решения, а после успешной работы краткий результат
+сохраняется в память без служебного tool trace.
 
-The integration exercises Cognee's complete hackathon lifecycle:
-`remember -> recall -> improve/memify -> forget`, with fail-open behavior when
-the external memory service is unavailable.
+</details>
 
-Локальный coding agent и оркестратор моделей. Jevio работает с Ollama, LM Studio,
-vLLM и облачными OpenAI-compatible API, умеет читать и изменять проект, запускать
-команды, подключать Agent Skills и раздавать задачи специализированным моделям.
+## Why Jevio?
 
-Это первая рабочая версия ядра, а не готовая замена Claude Code. В ней уже есть
-границы безопасности и расширяемые контракты, на которые можно наращивать TUI,
-MCP, постоянные сессии и плагины.
+Most coding agents lose project knowledge when a chat ends. Large transcripts
+are expensive to replay, raw tool logs pollute context, and simply giving more
+models write access creates conflicts instead of better code.
 
-## Что уже работает
+Jevio separates those concerns:
 
-- интерактивный CLI и одноразовые задачи;
-- отдельные модели для orchestrator, architect, coder, reviewer, judge и compactor;
-- динамическое делегирование в изолированный контекст;
-- строгий режим architect -> coder -> reviewer;
-- совет моделей для независимого планирования и ревью без конфликтующих правок;
-- tools для чтения, поиска, записи, точечной замены, git diff и shell;
-- symbol index и lookup_symbol для точной навигации по определениям и импортам;
-- подтверждение записи и запуска команд;
-- запрет выхода tools за workspace и запрет перехода через symlink;
-- совместимые Agent Skills в .agents/skills/*/SKILL.md;
-- OpenAI-compatible transport без внешних npm-зависимостей.
+| Problem | Jevio's approach |
+| --- | --- |
+| Decisions disappear between sessions | Project-scoped semantic memory with Cognee |
+| Long chats overflow the context window | Model-driven compaction with readable checkpoints |
+| Multiple agents overwrite each other | Read-only parallel analysis, one controlled writer |
+| Models waste tokens discovering the repository | Cached symbol index and bounded repository map |
+| Tool use can escape the intended scope | Host-side workspace guard and permission gates |
+| Agent history is hard to inspect | Plain Markdown transcripts in `.jevio/sessions/` |
 
-## Быстрый старт
+## What works today
 
-Требуется Node.js 22.19 или новее и запущенный OpenAI-compatible сервер.
+- Interactive terminal UI with streaming reasoning and tool activity.
+- One-shot tasks and resumable, forkable Markdown sessions.
+- Separate models for orchestrator, architect, coder, reviewer, judge, and compactor.
+- Direct, orchestrated, team, council-plan, and council-review execution modes.
+- OpenAI-compatible Chat Completions and Responses transports.
+- Ollama, LM Studio, vLLM, OpenRouter, NVIDIA, OpenAI, and compatible endpoints.
+- Workspace tools for reading, searching, editing, shell commands, and Git diff.
+- Agent Skills discovery from `.agents/skills/*/SKILL.md`.
+- Built-in symbol navigation with optional Universal Ctags acceleration.
+- Durable Markdown memory plus optional Cognee semantic recall.
+- Explicit approval for plans, file writes, and shell execution.
 
-    node src/cli.ts init
+## How it works
 
-Для первого запуска есть интерактивный мастер. Он проверит Node.js и Git, найдёт
-Ollama/LM Studio на стандартных локальных портах, покажет модели, создаст
-`jevio.config.json`, запустит `doctor` и предложит безопасную демо-задачу:
+```mermaid
+flowchart TD
+    U[User task] --> H[Session host]
+    H --> R[Cognee recall]
+    R --> O[Root orchestrator]
+    H --> M[Markdown memory]
+    M --> O
+    H --> I[Repository map]
+    I --> O
 
-    jevio setup
+    O --> D{Execution mode}
+    D -->|direct| C[Coder]
+    D -->|team| A[Architect]
+    D -->|council plan| AC[3 independent architects]
+    D -->|council review| RC[3 focused reviewers]
 
-Отредактируйте jevio.config.json, указав реально установленные модели, затем:
+    A --> C
+    AC --> J[Judge]
+    J --> C
+    C --> P[Permission gate]
+    P --> W[Workspace tools]
+    W --> V[Reviewer]
+    RC --> J
 
-    node src/cli.ts doctor
-    node src/cli.ts "исправь ошибку в обработке авторизации"
+    V --> S[Successful result]
+    S --> H
+    H --> RM[Cognee remember]
+```
 
-Интерактивный режим:
+The model is never the security boundary. File access, writes, shell commands,
+delegation, and workspace containment are enforced by the host.
 
-    node src/cli.ts
+## Cognee memory lifecycle
 
-Сессия создаётся автоматически и сохраняется в читаемый Markdown. Как в Kimi
-Code, последнюю сессию можно продолжить флагом, а конкретную выбрать по ID:
+Cognee is the semantic layer above Jevio's inspectable Markdown memory. The
+current task and repository state always outrank retrieved history.
 
-    node src/cli.ts --continue
-    node src/cli.ts --session
-    node src/cli.ts --session <id>
+| Stage | When it runs | What Jevio does |
+| --- | --- | --- |
+| **Remember** | After a successful task, explicit memory entry, or compaction | Stores concise Markdown without tool traces |
+| **Recall** | Before every task | Retrieves dataset-scoped context and marks it as untrusted history |
+| **Improve** | On `/memory improve` | Enriches the existing graph; falls back to legacy `memify` when needed |
+| **Forget** | On confirmed `/memory clear` | Deletes only this project's Cognee dataset |
 
-Команды внутри интерактивного режима:
+Memory is intentionally fail-open. A timeout, missing credential, or unavailable
+Cognee service produces a warning but does not stop the coding task or prevent
+the local session from being saved.
 
-    /new                         новая сессия
-    /sessions                    список и переключение
-    /session                     дополнительный алиас
-    /resume [id]                 продолжить сессию
-    /title <text>                переименовать
-    /fork                        создать ветку диалога
-    /export-md [path]            экспортировать transcript
-    /compact [инструкция]        сжать текущий контекст отдельной моделью
-    /compact status              показать модель, пороги и размер контекста
+### Memory boundaries
 
-Файлы сессий находятся в .jevio/sessions/*.md. В контекст при resume попадает
-последний ограниченный хвост сообщений, но сам Markdown сохраняет полную историю.
+- `.jevio/MEMORY.md` contains user-maintained project instructions.
+- `.jevio/sessions/*.md` contains readable user/assistant transcripts.
+- Cognee stores semantic project history in a dedicated dataset.
+- Retrieved memory is data, never an instruction.
+- API keys remain in environment variables or ignored local secret files.
 
-## Долговременная память
+## Quick start
 
-Project memory хранится в .jevio/MEMORY.md и автоматически добавляется в system
-prompt orchestrator и всех специалистов:
+### Requirements
 
-    /memory
-    /memory add Всегда запускать integration tests для API
-    /memory status
-    /memory sync
-    /memory improve
-    /memory clear
+- Node.js 22.19 or newer
+- Git
+- At least one OpenAI-compatible model endpoint
 
-MEMORY.md считается пользовательской инструкцией, но по умолчанию исключён из
-Git. Если правила должны быть общими для команды, их лучше переносить в
-AGENTS.md или version-controlled Skill.
+### Install
 
-### Cognee
+```bash
+git clone https://github.com/theJorDea/JevioFuseHack.git
+cd JevioFuseHack
+npm ci
+```
 
-Cognee можно включить как дополнительный семантический слой над Markdown-памятью.
-Перед каждой задачей Jevio ищет относящиеся к ней прошлые решения и добавляет
-результаты в отдельный недоверенный блок контекста. Текущий запрос, состояние
-репозитория и MEMORY.md всегда имеют более высокий приоритет. После успешной
-задачи в Cognee сохраняется только пара запрос/итоговый ответ без tool trace;
-также сохраняются явные `/memory add` и compaction checkpoints.
+Run the interactive setup wizard:
 
-Запустите локальный Cognee API по его официальной инструкции, например:
+```bash
+node src/cli.ts setup
+node src/cli.ts doctor
+```
 
-    docker run --env-file ./.env -p 8000:8000 --rm -it cognee/cognee:main
+Start an interactive session:
 
-В `.env` Cognee требуется как минимум `LLM_API_KEY`. Затем включите интеграцию:
+```bash
+node src/cli.ts
+```
 
-    {
-      "memory": {
-        "cognee": {
-          "enabled": true,
-          "baseUrl": "http://localhost:8000",
-          "authMode": "x-api-key",
-          "timeoutMs": 2000,
-          "maxResults": 6,
-          "maxContextCharacters": 8000,
-          "maxRememberCharacters": 16000,
-          "rememberCompletedTurns": true,
-          "rememberCompactions": true
-        }
-      }
+Or run one task directly:
+
+```bash
+node src/cli.ts "add tests for the configuration parser"
+```
+
+To install the `jevio` command globally from the cloned repository:
+
+```bash
+npm install -g .
+jevio doctor
+```
+
+## Configure a model provider
+
+Jevio ships with an Ollama-oriented example. Any OpenAI-compatible endpoint can
+be configured in `jevio.config.json`:
+
+```json
+{
+  "defaultProvider": "cloud",
+  "providers": {
+    "cloud": {
+      "baseUrl": "https://api.example.com/v1",
+      "apiKeyEnv": "MY_LLM_API_KEY",
+      "defaultModel": "my-code-model"
     }
+  },
+  "roles": {
+    "orchestrator": { "provider": "cloud", "model": "my-code-model" },
+    "coder": { "provider": "cloud", "model": "my-code-model" },
+    "architect": { "provider": "cloud", "model": "my-code-model" },
+    "reviewer": { "provider": "cloud", "model": "my-code-model" },
+    "judge": { "provider": "cloud", "model": "my-code-model" },
+    "compactor": { "provider": "cloud", "model": "my-code-model" }
+  }
+}
+```
 
-Для Cognee Cloud добавьте `baseUrlEnv: "COGNEE_BASE_URL"` и
-`apiKeyEnv: "COGNEE_API_KEY"`; адрес и ключ берутся из окружения, а ключ
-передаётся через `X-Api-Key`. Если переменная отсутствует, основная работа Jevio
-продолжится без внешней памяти. Для self-hosted API с включённой Bearer-аутентификацией используйте
-`authMode: "bearer"` и переменную из `apiKeyEnv`. Если `dataset` не задан,
-Jevio создаёт устойчивое имя из названия и хеша абсолютного пути проекта.
+Different roles may use different providers and models. Direct API keys are not
+required in the tracked configuration.
 
-Проверка и управление:
+## Configure Cognee
 
-    node src/cli.ts doctor       # проверяет /health
-    /memory status              # соединение и имя dataset
-    /memory sync                # загрузить текущий MEMORY.md
-    /memory improve             # обогатить существующий граф памяти
-    /memory clear               # очистить MEMORY.md и dataset этого проекта
+For Cognee Cloud, set the endpoint and key in the environment.
 
-Cognee работает в fail-open режиме: timeout, отсутствие сервиса или ошибка
-записи отображаются как предупреждение, но не прерывают задачу. При использовании
-облачного Cognee учитывайте, что запросы и итоговые ответы передаются внешнему
-сервису; для чувствительных репозиториев используйте self-hosted вариант или
-отключите `rememberCompletedTurns`.
+PowerShell:
 
-## Compaction
+```powershell
+$env:COGNEE_BASE_URL = "https://your-tenant.cognee.ai"
+$env:COGNEE_API_KEY = "your-api-key"
+```
 
-Compaction создаёт continuation summary отдельной моделью и сохраняет checkpoint
-прямо в session Markdown. Исходный transcript не удаляется, но при следующем
-resume Jevio начинает с последнего summary и сохранённых недавних сообщений.
-Повторный compact не перечитывает всю уже сжатую историю.
+Bash or zsh:
 
-Пример настройки:
+```bash
+export COGNEE_BASE_URL="https://your-tenant.cognee.ai"
+export COGNEE_API_KEY="your-api-key"
+```
 
-    {
-      "roles": {
-        "compactor": {
-          "provider": "ollama",
-          "model": "your-small-summary-model",
-          "temperature": 0.1,
-          "maxTokens": 4096
-        }
-      },
-      "agent": {
-        "maxToolOutputCharacters": 12000,
-        "keepRecentToolResults": 6
-      },
-      "compaction": {
-        "auto": true,
-        "contextWindowTokens": 32768,
-        "reservedTokens": 4096,
-        "triggerCharacters": 80000,
-        "keepRecentMessages": 6,
-        "maxSummaryCharacters": 16000,
-        "prompt": "Preserve requirements, decisions, changed files, test results and next steps."
-      }
+Then enable the adapter:
+
+```json
+{
+  "memory": {
+    "cognee": {
+      "enabled": true,
+      "baseUrl": "http://localhost:8000",
+      "baseUrlEnv": "COGNEE_BASE_URL",
+      "apiKeyEnv": "COGNEE_API_KEY",
+      "authMode": "x-api-key",
+      "dataset": "agent_sessions",
+      "timeoutMs": 60000,
+      "maxResults": 6,
+      "maxContextCharacters": 8000,
+      "maxRememberCharacters": 16000,
+      "rememberCompletedTurns": true,
+      "rememberCompactions": true
     }
+  }
+}
+```
+
+For self-hosted Cognee, use its local URL directly. If authentication is enabled,
+set `authMode` to `bearer` and provide the token through `apiKeyEnv`.
+
+## Two-minute hackathon demo
+
+1. Run `node src/cli.ts doctor` and show the connected Cognee dataset.
+2. Start Jevio and complete a small repository task.
+3. Run `/memory status` until the pipeline reports
+   `DATASET_PROCESSING_COMPLETED`.
+4. Start a new session with `/new` and ask a related task.
+5. Show the `recalled relevant Cognee memory` event and the better contextual answer.
+6. Run `/memory improve` to demonstrate graph enrichment.
+7. Optionally use `/memory clear` to demonstrate dataset-scoped deletion.
+
+This proves that memory survives the chat boundary while current code still
+remains the source of truth.
+
+## Execution modes
+
+| Mode | Pipeline | Best for |
+| --- | --- | --- |
+| `--direct` | coder | Small, obvious changes with minimum latency |
+| default | orchestrator with dynamic delegation | General work |
+| `--team` | architect → coder → reviewer | Changes that need a mandatory design and review pass |
+| `--council-plan` | 3 architects → judge → coder → reviewer | Risky architectural decisions |
+| `--council-review` | 3 focused reviewers → judge | Independent security, correctness, and test review |
+
+Examples:
+
+```bash
+node src/cli.ts --direct "rename the parser helper"
+node src/cli.ts --team "refactor the session storage layer"
+node src/cli.ts --council-plan "redesign provider routing"
+node src/cli.ts --council-review
+```
+
+Council modes parallelize read-only reasoning. Only one coder receives write
+access, preventing conflicting edits.
+
+## Interactive commands
+
+### Sessions
+
+```text
+/new                  Start a new session
+/sessions             List and switch sessions
+/resume [id]          Resume a session
+/title <text>         Rename the current session
+/fork                 Fork the conversation
+/export-md [path]     Export a Markdown transcript
+```
+
+### Memory and context
+
+```text
+/memory               Show Markdown project memory
+/memory add <text>    Add an explicit durable instruction
+/memory status        Check Cognee connection, dataset, and pipeline
+/memory sync          Upload MEMORY.md to Cognee
+/memory improve       Enrich the Cognee graph
+/memory clear         Clear Markdown memory and this project's dataset
+/compact [note]       Compact the current context
+/compact status       Show context and compaction settings
+```
+
+### Agent modes
+
+```text
+/direct
+/orchestrate
+/team
+/council-plan
+/council-review
+```
+
+## Context management
+
+Jevio keeps long sessions usable without hiding their history:
+
+- The full transcript stays in Markdown.
+- Compaction creates a continuation summary with a dedicated model role.
+- Recent exact messages are retained after the summary.
+- Large and old tool outputs are pruned from model-visible context.
+- Static memory, skills, repository map, and the next task count toward the limit.
+- Resume starts from the latest checkpoint instead of replaying every tool call.
+
+## Safety model
+
+- Paths are resolved against the workspace and checked against traversal.
+- Symlinks cannot be used to escape the workspace boundary.
+- Writes and shell commands require approval by default.
+- Architect and reviewer roles do not receive mutation tools.
+- Shell permissions support `off`, `tests-only`, `package-manager`, and `full`.
+- Plans for implementation tasks are persisted and require approval.
+- Cognee failures never block local session persistence.
+- Retrieved historical memory is explicitly prompt-injection resistant.
+
+`--yes` and automatic approvals are intended only for repositories you trust.
 
-contextWindowTokens должен соответствовать модели, которая ведёт основной
-диалог. reservedTokens оставляет место для следующего запроса и ответа.
-triggerCharacters является запасным порогом, потому что без tokenizer конкретной
-локальной модели число токенов оценивается приблизительно. Старые tool outputs
-не сохраняются в диалог, а каждый новый результат tool дополнительно ограничен
-maxToolOutputCharacters. При расчёте порога учитываются session history,
-MEMORY.md, каталог skills и следующий пользовательский запрос.
-
-Для модели с context window 32K можно начать с contextWindowTokens: 32768 и
-reservedTokens: 4096. Для 128K-модели подставьте 131072, но не увеличивайте
-reservedTokens механически: это место нужно для следующего запроса, tool calls и
-ответа. Если модель начинает терять связность раньше переполнения, уменьшите
-contextWindowTokens или triggerCharacters. Если compactor слабый, увеличьте
-keepRecentMessages и сделайте prompt более предметным.
-
-Полезные режимы:
-
-    # Без оркестратора: меньше задержка и расход токенов
-    node src/cli.ts --direct "добавь тест для парсера"
-
-    # Обязательные архитектурный и ревью-проходы
-    node src/cli.ts --team "переделай слой хранения данных"
-
-    # Совет из трёх архитекторов выбирает один план, после чего пишет только один coder
-    node src/cli.ts --council-plan "переделай слой сессий и не сломай compaction"
-
-    # Три независимых ревью: безопасность, корректность и тесты; workspace не изменяется
-    node src/cli.ts --council-review
-    node src/cli.ts review --council
-
-    # Не спрашивать подтверждения для write/shell
-    node src/cli.ts --yes "обнови зависимости и прогони тесты"
-
-В интерактивном режиме режим можно менять без перезапуска:
-
-    /team          строгий architect -> coder -> reviewer
-    /council-plan  3 architect -> judge -> coder -> reviewer
-    /council-review 3 reviewer -> judge, без изменений workspace
-    /setup         открыть настройку провайдера и модели в TUI
-    /direct        быстрый запуск coder без оркестратора
-    /orchestrate   стандартный orchestration mode
-
-Orchestrator также может вызвать `suggest_mode`, когда следующий запрос выгоднее
-выполнять в другом режиме. TUI показывает рекомендуемый режим, краткую причину и
-варианты `Переключить`/`Оставить`. Подтвержденная смена применяется со следующей
-задачи и сразу отражается в индикаторе режима под полем ввода.
-
-Team mode передаёт текущую session history всем специалистам, поэтому
-последующие задачи видят решения и итоги предыдущих шагов.
-
-## Совет моделей
-
-`--council-plan` предназначен для сложных изменений. Три независимых запуска
-`architect` формируют варианты плана: основной, минимальный и риск-ориентированный.
-Роль `judge` сопоставляет предложения с репозиторием, выбирает один итоговый план,
-после чего единственный `coder` вносит изменения. Обычный `reviewer` проверяет
-результат и при вердикте `FIX` запускает ограниченный конфигом цикл исправлений.
-
-Перед запуском coder итоговый план сохраняется в `.jevio/plans/*.md` и требует
-явного согласования. В TUI доступны варианты `Одобрить`, `Отклонить` и
-`Другое...`: последний открывает поле для предложений, после чего architect или
-judge переписывает план и снова показывает его пользователю. Для полностью
-неинтерактивного запуска план можно автоматически одобрить флагом `--yes`.
-
-`--council-review` предназначен для уже существующих изменений. Три `reviewer`
-проверяют diff с фокусом на безопасность, корректность и тесты/сопровождение.
-`judge` удаляет дубли и неподтверждённые замечания, группирует итоговые findings и
-возвращает `PASS` или `FIX`. В этом режиме нет `coder`, поэтому он не должен
-изменять workspace. Команда `jevio review --council` является короткой формой того
-же запуска.
-
-Council Review выводит `Verdict`, `Critical`, `Warnings`, `Consensus`,
-`Disagreements` и `Recommended fixes`. Полный протокол трех reviewer и judge
-сохраняется в Markdown-сессию. После проверки используйте `jevio fix-review`
-или `/fix-review`, чтобы передать coder только подтвержденные findings judge.
-
-Запись и точечная замена файлов показывают preview в формате unified diff до
-подтверждения. Запуск shell-команд ограничивается `permissions.shellMode`:
-`off`, `tests-only` (по умолчанию), `package-manager` или `full`. Режим
-`package-manager` всегда повторно спрашивает подтверждение для установки или
-обновления зависимостей, даже с `--yes`.
-
-Архитекторов и ревьюеров в council-режимах можно запускать параллельно через
-`agent.maxParallelReadAgents`. По умолчанию значение `1`: это безопасно для
-одной локальной модели и ограниченной VRAM. Для независимых облачных endpoints
-можно указать `3`; `coder` и `judge` всё равно выполняются последовательно.
-
-    {
-      "agent": { "maxParallelReadAgents": 3 }
-    }
-
-Symbol index прогревается в фоне и не задерживает первый prompt. Пока индекс
-строится, lookup_symbol при первом обращении дождётся готовой карты символов.
-
-## Установка команды
-
-Для локальной разработки создайте npm-ссылку один раз:
-
-    npm.cmd link
-    jevio --help
-
-На Windows используется npm.cmd, поскольку PowerShell может блокировать
-исполнение npm.ps1. После публикации пакета обычная установка будет выглядеть
-как npm install -g jevio. Launcher находится в bin/jevio.mjs и запускает
-TypeScript CLI напрямую на Node.js 22.19+.
-
-В корпоративных профилях PowerShell с полностью запрещёнными скриптами npm может
-создать блокируемый jevio.ps1 shim. В таком случае используйте jevio.cmd либо
-удалите только этот автоматически созданный shim из пользовательского npm
-prefix, чтобы команда jevio выбрала jevio.cmd.
-
-## Подключение моделей
-
-Для Ollama достаточно указать локальный endpoint и реально установленные модели:
-
-    {
-      "defaultProvider": "ollama",
-      "providers": {
-        "ollama": { "baseUrl": "http://localhost:11434/v1" }
-      },
-      "roles": {
-        "orchestrator": { "model": "your-general-model" },
-        "architect": { "model": "your-reasoning-model" },
-        "coder": { "model": "your-code-model" },
-        "reviewer": { "model": "your-reasoning-model" },
-        "judge": { "model": "your-reasoning-model" },
-        "compactor": { "model": "your-small-summary-model" }
-      }
-    }
-
-В `/provider` есть отдельный пресет LM Studio с endpoint `http://localhost:1234/v1`.
-Выберите фактически загруженную в LM Studio модель в последнем поле формы.
-
-Для облачного API задайте baseUrl и имя переменной с ключом:
-
-    {
-      "providers": {
-        "cloud": {
-          "baseUrl": "https://example.com/v1",
-          "apiKeyEnv": "MY_LLM_API_KEY"
-        }
-      }
-    }
-
-Провайдер и модель задаются отдельно для каждой роли. Например, можно оставить
-локальную модель для оркестрации, назначить сильную API-модель только `coder`, а
-недорогую модель через другой провайдер для `reviewer` и `compactor`:
-
-    {
-      "defaultProvider": "ollama",
-      "providers": {
-        "ollama": { "baseUrl": "http://localhost:11434/v1" },
-        "openrouter": {
-          "baseUrl": "https://openrouter.ai/api/v1",
-          "apiKeyEnv": "OPENROUTER_API_KEY",
-          "defaultModel": "openai/gpt-5.2"
-        },
-        "nvidia-nim": {
-          "baseUrl": "https://integrate.api.nvidia.com/v1",
-          "apiKeyEnv": "NVIDIA_API_KEY",
-          "defaultModel": "openai/gpt-oss-20b"
-        },
-        "openai-codex": {
-          "baseUrl": "https://api.openai.com/v1",
-          "transport": "responses",
-          "apiKeyEnv": "OPENAI_API_KEY",
-          "defaultModel": "gpt-5.2-codex"
-        }
-      },
-      "roles": {
-        "orchestrator": { "provider": "ollama", "model": "qwen3:14b" },
-        "architect": { "provider": "openrouter", "model": "openai/gpt-5.2" },
-        "coder": { "provider": "openai-codex", "model": "gpt-5.2-codex" },
-        "reviewer": { "provider": "nvidia-nim", "model": "openai/gpt-oss-20b" }
-      }
-    }
-
-В TUI используйте `/provider` для добавления пресетов OpenRouter, NVIDIA NIM или
-OpenAI Codex API, затем `/roles`, чтобы назначить отдельные provider/model каждой
-роли. OpenAI Codex API требует отдельный `OPENAI_API_KEY`: авторизация по
-подписке ChatGPT в Fuse не используется.
-
-Одновременно держать все модели в VRAM не требуется: вызовы выполняются
-последовательно. Для небольших локальных моделей чаще лучше использовать
---direct, а ревью включать только для рискованных изменений.
-
-Практичное распределение ролей:
-
-- orchestrator — небольшая general-purpose модель, которая маршрутизирует задачу;
-- architect — модель, хорошо работающая с анализом и ограничениями;
-- coder — самая сильная code-модель, потому что она меняет файлы;
-- reviewer — reasoning-модель с read-only tools;
-- judge — reasoning-модель, которая выбирает план или объединяет независимые ревью;
-- compactor — недорогая модель с хорошим следованием формату, без tools.
-
-Роль compactor не должна быть обязательно такой же сильной, как coder. Её задача
-не решать задачу, а точно сохранить состояние работы для следующего turn.
-
-## Terminal UI
-
-When Jevio runs in an interactive terminal, it uses a focused TUI rather than a plain readline prompt:
-
-- type `/` to open the command list, keep typing to filter it (for example, `/ne`), and press `Tab` to accept a completion;
-- use `Up` and `Down` to navigate command suggestions and saved-session picker entries;
-- `Shift+Enter` inserts a new prompt line; `Enter` submits it;
-- agent results render as Markdown, while the footer reports the current model role and tool activity;
-- model turns and tool calls remain in the transcript as an activity timeline; providers that stream OpenAI-compatible `reasoning_content` (including Kimi) render a live thinking block;
-- models can emit short `report_progress` plan updates to the same timeline; these are user-facing summaries, not private reasoning traces;
-- `update_todo` keeps a visible task checklist for multi-step work, while `web_search` gives agents public-web titles, links, and snippets without an API key;
-- when an implementation decision is materially ambiguous, Fuse can call `ask_user`, opening a keyboard-selectable picker with predefined choices and an `Other...` text answer.
-- `/sessions` and `/resume` open an in-place session picker, including the session title, short ID, and last update time.
-- `/provider` opens configured providers; choose `Add provider` to enter an OpenAI-compatible base URL, API key, and model ID. The key is stored in `.jevio/providers.json`, which is ignored by Git; endpoint and model configuration are stored in `jevio.config.json`. The model is applied to all Fuse roles and can later be split per role in `jevio.config.json`. `Esc` closes provider dialogs.
-- The provider picker includes a `Kimi Code` preset with `https://api.kimi.com/coding/v1` and `Kimi K2.7`; enter only the API key to finish setup.
-
-Non-interactive runs and one-shot tasks keep the simple stdout interface, so CI usage is unchanged.
-
-## Skills
-
-Jevio читает directory-form и flat-form skills:
-
-    .agents/skills/security-review/
-    +-- SKILL.md
-
-В сборку Fuse уже входят `make-interfaces-feel-better`, `emil-design-eng`,
-`apple-design` и `animation-vocabulary`. Они автоматически попадают в каталог
-для моделей; посмотреть весь каталог можно через `jevio skills` или `/skills` в
-TUI. `review-animations` также встроен, но помечен автором как ручной skill и
-не навязывается модели автоматически.
-
-Пример SKILL.md:
-
-    ---
-    name: security-review
-    description: Проверка изменений авторизации и работы с секретами
-    whenToUse: Когда меняется authentication, permissions или обработка токенов
-    type: prompt
-    ---
-
-    # Security review
-
-    Проверь границы доверия, утечки секретов и обход авторизации.
-
-В system prompt попадают только имя и краткое описание. Полный документ модель
-загружает через load_skill, когда он действительно нужен.
-
-В поставку входит default skill `make-interfaces-feel-better`, адаптированный из
-[jakubkrehel/make-interfaces-feel-better](https://github.com/jakubkrehel/make-interfaces-feel-better)
-под лицензией MIT. Он применяется к UI-задачам и может быть переопределён skill
-с тем же именем в `.agents/skills`.
-
-## Навигация по коду
-
-При старте Jevio строит symbol index проекта. Агент вызывает lookup_symbol вместо
-полного поиска по файлам, когда ему нужно найти объявление класса, функции, типа,
-метода или переменной:
-
-    lookup_symbol("authService.validateToken")
-
-Результат содержит путь, строку, kind, scope, сигнатуру и найденные import-связи.
-Это особенно полезно для перехода от вызова к определению без расхода контекста на
-весь файл.
-
-По умолчанию backend: auto использует Universal Ctags, когда он установлен, и
-встроенный индексатор в остальных случаях. Встроенный backend покрывает
-TypeScript/JavaScript, Python, Go, Rust, Java/Kotlin, C/C++, C#, Ruby и PHP.
-Индекс кэшируется, сбрасывается после инструментальных изменений файлов и может
-быть принудительно перестроен моделью через rebuild_symbol_index.
-
-Перед каждым новым заданием Jevio сериализует индекс в компактное дерево файлов
-и объявлений. В него не попадают тела функций; файлы без символов остаются в
-дереве по имени. Карта добавляется только в system prompt `orchestrator`, `architect` и `judge`,
-а `coder` и `reviewer` используют точечный `lookup_symbol`.
-
-Проверьте Universal Ctags командой `jevio doctor`. Указывайте `backend: "ctags"`
-только после успешной проверки: этот режим намеренно завершится ошибкой, а не
-молча перейдёт на fallback. Для переносимой установки оставляйте `auto`.
-Tree-sitter пока не встраивается: для него нужно поставлять и сопровождать grammar
-для каждого языка, тогда как Universal Ctags уже даёт широкий multi-language
-покрытие без JavaScript native modules.
-
-На Windows Universal Ctags можно установить командой:
-
-    winget install -e --id UniversalCtags.Ctags
-
-Настройки находятся в codeIndex:
-
-    {
-      "codeIndex": {
-        "enabled": true,
-        "backend": "auto",
-        "prewarm": true,
-        "maxFiles": 10000,
-        "cacheTtlMs": 5000,
-        "maxResults": 20,
-        "mapMaxCharacters": 12000
-      }
-    }
-
-## Архитектурные источники
-
-Session workflow и изолированные subagents спроектированы по мотивам Kimi Code.
-У Kimi сессии и служебные события разделены, а skills имеют metadata и ленивую
-загрузку. В Jevio transcript намеренно хранится в Markdown, чтобы его можно было
-проверить вручную:
-
-    .jevio/sessions/<session-id>.md
-    .jevio/MEMORY.md
-
-Для context hygiene использованы идеи OpenCode: отдельный compaction reserve,
-настраиваемый auto threshold и pruning больших tool outputs. Jevio дополнительно
-проверяет, что после summary оценочный размер контекста действительно уменьшился,
-и не пересказывает уже сжатую историю повторно.
-
-Ссылки на оригинальные проекты и документацию:
-
-- Kimi Code: https://github.com/MoonshotAI/kimi-code
-- Kimi sessions: https://moonshotai.github.io/kimi-code/en/guides/sessions.html
-- OpenCode: https://github.com/anomalyco/opencode
-- OpenCode configuration: https://dev.opencode.ai/docs/config
-- OpenCode compaction hooks: https://dev.opencode.ai/docs/plugins/#compaction-hooks
-
-## Безопасность
-
-По умолчанию чтение разрешено, а каждое изменение файла и shell-команда требуют
-подтверждения. --yes и autoApprove* стоит включать только в доверенном
-репозитории. Shell остаётся потенциально опасным даже при файловом sandbox:
-команда может обращаться к сети, процессам и пользовательским данным.
-
-Подробные контракты и дальнейшие этапы описаны в
+## Testing
+
+Run the offline suite:
+
+```bash
+npm test
+npm run check
+```
+
+Run the opt-in real Cognee Cloud lifecycle test:
+
+```bash
+npm run test:cloud
+```
+
+The Cloud test creates an isolated temporary dataset, waits for indexing, verifies
+recall and improve, and deletes the dataset in cleanup.
+
+## Project structure
+
+```text
+bin/                         CLI launcher
+src/agent.ts                 Stateless model/tool loop
+src/cli.ts                   Session host and interactive commands
+src/orchestrator.ts          Team and council pipelines
+src/memory.ts                Cognee REST adapter
+src/session.ts               Markdown session persistence
+src/compaction.ts            Long-context compaction
+src/symbol-index.ts          Repository map and symbol lookup
+src/tools.ts                 Workspace tools and permission gates
+src/provider/                Model transport adapters
+src/default-skills/          Bundled Agent Skills
+test/                        Unit and Cloud integration tests
+docs/architecture.md         Detailed architecture and invariants
+```
+
+For implementation details and design invariants, see
 [docs/architecture.md](docs/architecture.md).
 
-## Проверка
+## Roadmap
 
-    npm.cmd test
-    npm.cmd run test:cloud      # opt-in: временный dataset в Cognee Cloud
-    node src/cli.ts --help
+- Retrieval feedback and memory quality scoring.
+- A compact benchmark for coding decisions, workflows, and stale-memory handling.
+- MCP client and dynamic tool schemas.
+- Provider capability registry for vision, reasoning, and context size.
+- Editor integration through ACP.
+- More precise tokenizer-aware context accounting.
 
-## Лицензия
+## Design influences
 
-MIT
+Jevio takes architectural inspiration from
+[Kimi Code](https://github.com/MoonshotAI/kimi-code) for isolated agent contexts
+and readable sessions, and from [OpenCode](https://github.com/anomalyco/opencode)
+for context hygiene. Its semantic memory layer is powered by
+[Cognee](https://github.com/topoteretes/cognee).
+
+No source code from those projects is copied into Jevio.
+
+## License
+
+[MIT](LICENSE)
