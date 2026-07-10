@@ -149,6 +149,28 @@ test("root agent can delegate into an isolated specialist", async (t) => {
   );
 });
 
+test("orchestrator can suggest a persistent execution mode", async () => {
+  let suggested = "";
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+    suggestMode: async (mode, reason) => {
+      suggested = `${mode}: ${reason}`;
+      return true;
+    },
+  };
+  assert.match(await executeTool("suggest_mode", {
+    mode: "council-plan",
+    reason: "The change crosses several architectural boundaries.",
+  }, context), /accepted/);
+  assert.equal(suggested, "council-plan: The change crosses several architectural boundaries.");
+  assert.ok(toolsForRole("orchestrator").some((tool) => tool.function.name === "suggest_mode"));
+  assert.ok(!toolsForRole("coder").some((tool) => tool.function.name === "suggest_mode"));
+});
+
 test("workspace discovery does not expose private Jevio session files", async (t) => {
   const root = await workspace(t);
   await mkdir(path.join(root, ".jevio", "sessions"), { recursive: true });

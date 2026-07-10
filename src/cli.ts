@@ -41,7 +41,7 @@ import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol
 import { InteractiveTui } from "./interactive-tui.ts";
 import { isImplementationRequest } from "./task-intent.ts";
 import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "./setup.ts";
-import type { ChatMessage, RoleName, ToolContext } from "./types.ts";
+import type { ChatMessage, ExecutionMode, RoleName, ToolContext } from "./types.ts";
 
 interface CliOptions {
   command: "run" | "init" | "setup" | "doctor" | "skills" | "review" | "fix-review" | "help";
@@ -461,7 +461,7 @@ async function main(): Promise<void> {
   context.onWorkspaceChange = () => {
     workspaceMutationCount += 1;
   };
-  let mode: "team" | "direct" | "orchestrate" | "council-plan" | "council-review" = options.councilPlan
+  let mode: ExecutionMode = options.councilPlan
     ? "council-plan"
     : options.councilReview
       ? "council-review"
@@ -470,6 +470,27 @@ async function main(): Promise<void> {
     : options.direct
       ? "direct"
       : "orchestrate";
+  let modeSuggestionUsed = false;
+  context.suggestMode = async (suggestedMode, reason) => {
+    if (modeSuggestionUsed || suggestedMode === mode) return false;
+    modeSuggestionUsed = true;
+    let accepted = false;
+    if (tui) {
+      const answer = await tui.askUser(
+        `Fuse предлагает режим ${suggestedMode}.\n\n${reason}\n\nПереключение начнет действовать со следующей задачи.`,
+        [
+          { label: "Переключить", description: `Использовать ${suggestedMode}` },
+          { label: "Оставить", description: `Сохранить ${mode}` },
+        ],
+      );
+      accepted = answer === "Переключить";
+    } else if (terminal) {
+      const answer = await terminal.question(`Fuse предлагает режим ${suggestedMode}: ${reason}\nПереключить для следующих задач? [y/N] `);
+      accepted = /^(y|yes|д|да)$/i.test(answer.trim());
+    }
+    if (accepted) mode = suggestedMode;
+    return accepted;
+  };
   const currentProvider = (): string => {
     const providers = new Set(Object.values(config.roles).map((role) => role.provider ?? config.defaultProvider));
     return providers.size === 1 ? [...providers][0] : "mixed";
@@ -570,6 +591,7 @@ async function main(): Promise<void> {
     return `Context compacted: ~${beforeTokens} -> ~${estimateHistoryTokens(history)} tokens; ${compacted.retainedMessages.length} recent messages retained.`;
   };
   const executeTask = async (task: string): Promise<string> => {
+    modeSuggestionUsed = false;
     let planDocument: PlanDocument | undefined;
     const approvePlan = async (plan: string): Promise<{ decision: "approve" | "reject" | "revise"; feedback?: string }> => {
       planDocument ??= await createPlanDocument(options.workspace, active.info.id);

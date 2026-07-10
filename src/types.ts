@@ -1,5 +1,6 @@
 export type RoleName = "orchestrator" | "coder" | "architect" | "reviewer" | "judge" | "compactor";
 export type SpecialistRoleName = "architect" | "coder" | "reviewer";
+export type ExecutionMode = "team" | "direct" | "orchestrate" | "council-plan" | "council-review";
 
 export interface ProviderConfig {
   baseUrl: string;
@@ -164,6 +165,7 @@ export interface ToolContext {
   reportProgress?: (message: string) => void | Promise<void>;
   onWorkspaceChange?: () => void;
   delegate?: (role: SpecialistRoleName, task: string) => Promise<string>;
+  suggestMode?: (mode: ExecutionMode, reason: string) => Promise<boolean>;
 }
 
 export interface AskUserOption {

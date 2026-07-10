@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { loadSkill } from "./skills.ts";
 import { getSymbolIndex, invalidateSymbolIndex, lookupSymbol } from "./symbol-index.ts";
-import type { AskUserOption, RoleName, TodoItem, ToolContext, ToolDefinition } from "./types.ts";
+import type { AskUserOption, ExecutionMode, RoleName, TodoItem, ToolContext, ToolDefinition } from "./types.ts";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -62,6 +62,22 @@ export async function resolveWorkspacePath(workspace: string, requested = "."): 
 }
 
 const definitions: Record<string, ToolDefinition> = {
+  suggest_mode: {
+    type: "function",
+    function: {
+      name: "suggest_mode",
+      description: "Suggest a better persistent execution mode to the user. Use at most once when another mode would materially improve cost, speed, or review quality. The switch applies to subsequent tasks.",
+      parameters: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["direct", "orchestrate", "team", "council-plan", "council-review"] },
+          reason: { type: "string", description: "One concise user-facing reason for the recommendation" },
+        },
+        required: ["mode", "reason"],
+        additionalProperties: false,
+      },
+    },
+  },
   delegate_agent: {
     type: "function",
     function: {
@@ -325,7 +341,7 @@ export function toolsForRole(role: RoleName): ToolDefinition[] {
   const names = role === "compactor"
     ? []
     : role === "orchestrator"
-    ? [...readTools, "delegate_agent"]
+    ? [...readTools, "suggest_mode", "delegate_agent"]
     : role === "architect"
     ? readTools
     : role === "judge"
@@ -401,6 +417,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const task = String(input.task ?? "").trim();
       if (!task) throw new Error("task must not be empty");
       return context.delegate(role as "architect" | "coder" | "reviewer", task);
+    }
+
+    if (name === "suggest_mode") {
+      const mode = String(input.mode ?? "") as ExecutionMode;
+      const reason = String(input.reason ?? "").trim();
+      if (!(["direct", "orchestrate", "team", "council-plan", "council-review"] as string[]).includes(mode)) {
+        throw new Error("Unknown execution mode.");
+      }
+      if (!reason) throw new Error("reason must not be empty");
+      if (!context.suggestMode) return "Mode switching is unavailable in this host.";
+      const accepted = await context.suggestMode(mode, reason);
+      return accepted
+        ? `Mode '${mode}' accepted and will be used for subsequent tasks.`
+        : `Mode '${mode}' was not selected; keep the current mode.`;
     }
 
     if (name === "ask_user") {

@@ -17,6 +17,7 @@ import {
   type SelectListTheme,
 } from "@earendil-works/pi-tui";
 import { isExactSlashCommand, SLASH_COMMANDS } from "./slash-commands.ts";
+import type { ExecutionMode } from "./types.ts";
 
 export interface TuiSession {
   id: string;
@@ -38,7 +39,7 @@ export interface InteractiveTuiOptions {
   listSessions(): Promise<TuiSession[]>;
   resumeSession(id: string): Promise<string>;
   getSession(): { id: string; title: string; messageCount: number };
-  getMode(): "team" | "direct" | "orchestrate" | "council-plan" | "council-review";
+  getMode(): ExecutionMode;
   getProvider(): string;
   listProviders(): Promise<TuiProvider[]>;
   selectProvider(name: string): Promise<string>;
