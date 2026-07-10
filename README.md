@@ -149,6 +149,7 @@ keepRecentMessages и сделайте prompt более предметным.
     /team          строгий architect -> coder -> reviewer
     /council-plan  3 architect -> judge -> coder -> reviewer
     /council-review 3 reviewer -> judge, без изменений workspace
+    /setup         открыть настройку провайдера и модели в TUI
     /direct        быстрый запуск coder без оркестратора
     /orchestrate   стандартный orchestration mode
 

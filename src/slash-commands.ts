@@ -13,6 +13,7 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { name: "fork", description: "Создать копию текущей сессии" },
   { name: "export-md", description: "Экспортировать историю", argumentHint: "[путь]" },
   { name: "compact", description: "Сжать текущий контекст", argumentHint: "[статус|инструкция]" },
+  { name: "setup", description: "Настроить провайдера и модель для сессии" },
   { name: "provider", description: "Выбрать провайдера модели", argumentHint: "[имя]" },
   { name: "team", description: "Использовать architect, coder и reviewer" },
   { name: "council-plan", description: "Запустить совет архитекторов для сложной задачи" },

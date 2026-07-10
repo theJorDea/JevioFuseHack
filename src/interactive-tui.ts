@@ -331,11 +331,11 @@ export class InteractiveTui {
       this.tui.requestRender();
       return;
     }
-    if (/^\/(?:sessions?|resume|provider)(?:\s*)$/i.test(value)) {
+    if (/^\/(?:sessions?|resume|provider|setup)(?:\s*)$/i.test(value)) {
       this.editor.addToHistory(input);
       this.editor.setText("");
       try {
-        if (/^\/provider\s*$/i.test(value)) await this.showProviderPicker();
+        if (/^\/(?:provider|setup)\s*$/i.test(value)) await this.showProviderPicker();
         else await this.showSessionPicker();
       } catch (error) {
         this.appendMessage("error", getErrorMessage(error));

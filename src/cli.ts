@@ -87,6 +87,7 @@ const INTERACTIVE_HELP = `Команды сессии:
   /export-md [path]            Экспортировать Markdown-историю
   /compact [instruction]       Сжать контекст настроенной моделью
   /compact status              Показать настройки сжатия и оценку контекста
+  /setup                       Настроить провайдера и модель для сессии
   /provider [name]             Показать или сменить провайдера для сессии
   /team                        Использовать architect -> coder -> reviewer для следующих задач
   /council-plan                Совет архитекторов, затем coder и reviewer
