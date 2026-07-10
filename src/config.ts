@@ -43,6 +43,7 @@ const DEFAULT_CONFIG: JevioConfig = {
   permissions: {
     autoApproveWorkspaceWrites: false,
     autoApproveShell: false,
+    shellMode: "tests-only",
   },
 };
 
@@ -74,6 +75,10 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
     roles[role] = { ...DEFAULT_CONFIG.roles[role], ...input.roles?.[role] };
     validateRoleConfig(role, roles[role]);
   }
+  const shellMode = input.permissions?.shellMode ?? DEFAULT_CONFIG.permissions.shellMode;
+  if (!["off", "tests-only", "package-manager", "full"].includes(shellMode)) {
+    throw new Error("Invalid permissions.shellMode.");
+  }
   return {
     defaultProvider: input.defaultProvider ?? DEFAULT_CONFIG.defaultProvider,
     providers: { ...DEFAULT_CONFIG.providers, ...input.providers } as Record<string, ProviderConfig>,
@@ -81,7 +86,7 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
     agent: { ...DEFAULT_CONFIG.agent, ...input.agent },
     compaction: { ...DEFAULT_CONFIG.compaction, ...input.compaction },
     codeIndex: { ...DEFAULT_CONFIG.codeIndex, ...input.codeIndex } as CodeIndexConfig,
-    permissions: { ...DEFAULT_CONFIG.permissions, ...input.permissions },
+    permissions: { ...DEFAULT_CONFIG.permissions, ...input.permissions, shellMode },
   };
 }
 

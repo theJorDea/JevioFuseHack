@@ -31,9 +31,13 @@ test("write tools require approval and exact replacement", async (t) => {
   assert.equal(await executeTool("write_file", { path: "a.txt", content: "old" }, denied), "Permission denied by user.");
 
   let workspaceChanges = 0;
+  let preview = "";
   const approved = {
     ...denied,
-    confirm: async () => true,
+    confirm: async (message: string) => {
+      preview = message;
+      return true;
+    },
     onWorkspaceChange: () => { workspaceChanges += 1; },
   };
   assert.match(await executeTool("write_file", { path: "a.txt", content: "old" }, approved), /^Wrote /);
@@ -44,6 +48,23 @@ test("write tools require approval and exact replacement", async (t) => {
   }, approved), "Replacement applied.");
   assert.equal(await readFile(path.join(root, "a.txt"), "utf8"), "new");
   assert.equal(workspaceChanges, 2);
+  assert.match(preview, /--- old/);
+  assert.match(preview, /\+\+\+ new/);
+});
+
+test("shell mode blocks commands outside its policy", async (t) => {
+  const root = await workspace(t);
+  const context: ToolContext = {
+    workspace: root,
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: true,
+    shellMode: "tests-only",
+    confirm: async () => true,
+  };
+  assert.equal(await executeTool("run_command", { command: "npm install" }, context), "Command blocked by shellMode 'tests-only'.");
+  assert.match(await executeTool("run_command", { command: "node --test" }, context), /exit: 0/);
+  assert.equal(await executeTool("run_command", { command: "npm install" }, { ...context, shellMode: "package-manager", confirm: async () => false }), "Permission denied by user.");
 });
 
 test("search reports relative paths and line numbers", async (t) => {

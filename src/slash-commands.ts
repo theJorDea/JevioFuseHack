@@ -17,6 +17,7 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { name: "provider", description: "Выбрать провайдера модели", argumentHint: "[имя]" },
   { name: "roles", description: "Назначить отдельные провайдеры и модели ролям" },
   { name: "skills", description: "Показать встроенные и проектные skills" },
+  { name: "fix-review", description: "Исправить findings последнего Council Review" },
   { name: "team", description: "Использовать architect, coder и reviewer" },
   { name: "council-plan", description: "Запустить совет архитекторов для сложной задачи" },
   { name: "council-review", description: "Запустить совет ревьюеров текущих изменений" },

@@ -17,6 +17,7 @@ import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfi
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import {
   appendProjectMemory,
+  appendSessionCouncil,
   appendSessionCompaction,
   appendSessionTurn,
   clearProjectMemory,
@@ -26,6 +27,7 @@ import {
   forkSession,
   listSessions,
   loadProjectMemory,
+  loadLatestCouncilReview,
   loadSession,
   NEW_SESSION_TITLE,
   renameSession,
@@ -41,7 +43,7 @@ import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "./
 import type { ChatMessage, RoleName, ToolContext } from "./types.ts";
 
 interface CliOptions {
-  command: "run" | "init" | "setup" | "doctor" | "skills" | "review" | "help";
+  command: "run" | "init" | "setup" | "doctor" | "skills" | "review" | "fix-review" | "help";
   task: string;
   workspace: string;
   configPath?: string;
@@ -63,6 +65,7 @@ Usage:
   jevio setup                  Настроить локального провайдера в интерактивном режиме
   jevio doctor                 Проверить конфигурацию и endpoints моделей
   jevio skills                 Показать найденные skills проекта
+  jevio fix-review             Исправить подтвержденные findings последнего Council Review
 
 Options:
   --continue, -c               Продолжить последнюю сессию в проекте
@@ -91,6 +94,7 @@ const INTERACTIVE_HELP = `Команды сессии:
   /provider [name]             Показать или сменить провайдера для сессии
   /roles                       Назначить отдельные провайдеры и модели ролям
   /skills                      Показать встроенные и проектные skills
+  /fix-review                  Исправить findings последнего Council Review
   /team                        Использовать architect -> coder -> reviewer для следующих задач
   /council-plan                Совет архитекторов, затем coder и reviewer
   /council-review              Совет ревьюеров текущих изменений
@@ -119,7 +123,7 @@ function parseArgs(argv: string[]): CliOptions {
   const taskParts: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (index === 0 && ["init", "setup", "doctor", "skills", "review"].includes(argument)) {
+    if (index === 0 && ["init", "setup", "doctor", "skills", "review", "fix-review"].includes(argument)) {
       options.command = argument as CliOptions["command"];
     } else if (argument === "--help" || argument === "-h") {
       options.command = "help";
@@ -159,6 +163,7 @@ function parseArgs(argv: string[]): CliOptions {
     options.councilReview = true;
     if (!options.task) options.task = "Review current workspace changes.";
   }
+  if (options.command === "fix-review") options.continueSession = true;
   if ([options.team, options.direct, options.councilPlan, options.councilReview].filter(Boolean).length > 1) {
     throw new Error("Choose only one execution mode.");
   }
@@ -301,6 +306,7 @@ async function makeContext(options: CliOptions, confirm: ToolContext["confirm"])
       codeIndex: config.codeIndex,
       autoApproveWrites: options.yes || config.permissions.autoApproveWorkspaceWrites,
       autoApproveShell: options.yes || config.permissions.autoApproveShell,
+      shellMode: config.permissions.shellMode,
       maxToolOutputCharacters: config.agent.maxToolOutputCharacters,
       confirm,
     },
@@ -562,6 +568,12 @@ async function main(): Promise<void> {
         onEvent: reportEvent,
       });
       const content = `${result.content}\n\nВыбранный план совета:\n${result.plan}\n\nРевью:\n${result.review}`;
+      await appendSessionCouncil(active.info, "plan", [
+        "# Council Plan",
+        ...result.architectPlans.map((plan, index) => `## Architect ${index + 1}\n\n${plan}`),
+        `## Judge Decision\n\n${result.judgment}`,
+        `## Review\n\n${result.review}`,
+      ].join("\n\n"));
       history = [...history, { role: "user", content: task }, { role: "assistant", content }];
       await appendSessionTurn(active.info, task, content);
       return content;
@@ -574,6 +586,10 @@ async function main(): Promise<void> {
         history,
         onEvent: reportEvent,
       });
+      await appendSessionCouncil(active.info, "review", [
+        result.content,
+        ...result.reviews.map((review, index) => `## Reviewer ${index + 1}\n\n${review}`),
+      ].join("\n\n"));
       history = [...history, { role: "user", content: task }, { role: "assistant", content: result.content }];
       await appendSessionTurn(active.info, task, result.content);
       return result.content;
@@ -623,6 +639,15 @@ async function main(): Promise<void> {
     tui?.setTodos(selected.todos);
     return `Resumed ${active.info.id}: ${active.info.title} (${history.length} messages loaded)`;
   };
+  const fixLatestCouncilReview = async (): Promise<string> => {
+    const review = await loadLatestCouncilReview(active.info);
+    if (!review) throw new Error("В текущей сессии нет Council Review. Сначала запустите jevio review --council.");
+    const task = `Исправь только подтвержденные judge findings из Council Review ниже. Не меняй несвязанный код. После исправлений запусти релевантные проверки и кратко перечисли их результаты.\n\n${review}`;
+    const result = await runAgent({ role: "coder", task, config, toolContext: context, history, onEvent: reportEvent });
+    history = result.history;
+    await appendSessionTurn(active.info, "/fix-review", result.content);
+    return result.content;
+  };
   const handleInteractiveInput = async (answer: string, useTuiPicker = false): Promise<{ output?: string; exit?: boolean }> => {
     const task = answer.trim();
     if (!task) return {};
@@ -639,6 +664,7 @@ async function main(): Promise<void> {
           : "Skills не найдены.",
       };
     }
+    if (command === "/fix-review") return { output: await fixLatestCouncilReview() };
     if (command === "/team") {
       mode = "team";
       return { output: "Mode: team (architect -> coder -> reviewer)." };
@@ -733,6 +759,10 @@ async function main(): Promise<void> {
   };
 
   try {
+    if (options.command === "fix-review") {
+      console.log(`\n${await fixLatestCouncilReview()}`);
+      return;
+    }
     if (options.task) {
       console.log(`\n${await executeTask(options.task)}`);
       return;

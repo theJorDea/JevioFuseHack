@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   appendProjectMemory,
+  appendSessionCouncil,
   appendSessionCompaction,
   appendSessionTurn,
   clearProjectMemory,
@@ -13,6 +14,7 @@ import {
   forkSession,
   listSessions,
   loadProjectMemory,
+  loadLatestCouncilReview,
   loadSession,
   renameSession,
   saveSessionTodos,
@@ -67,6 +69,15 @@ test("Markdown sessions support append, resume, rename, fork, and export", async
 
   const exported = await exportSession(session, path.join(root, "exports"));
   assert.match(await readFile(exported, "utf8"), /Implemented and tested/);
+});
+
+test("Council review records survive compaction and expose the latest verdict", async (t) => {
+  const root = await workspace(t);
+  const session = await createSession(root);
+  await appendSessionTurn(session, "Review", "Started.");
+  await appendSessionCouncil(session, "review", "# Council Review\n\n## Verdict\n\nFIX");
+  await appendSessionCompaction(session, "Review is pending.", [{ role: "user", content: "Review" }, { role: "assistant", content: "Started." }]);
+  assert.match(await loadLatestCouncilReview(session) ?? "", /Council Review/);
 });
 
 test("session prefixes must identify one session", async (t) => {

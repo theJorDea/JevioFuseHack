@@ -22,6 +22,12 @@ export interface LoadedSession {
   todos: TodoItem[];
 }
 
+export type CouncilRecordKind = "plan" | "review";
+
+function councilBlock(kind: CouncilRecordKind, content: string): string {
+  return `\n<!-- jevio:council kind=${kind} -->\n${escapeJevioMarkers(content).trimEnd()}\n<!-- /jevio:council -->\n`;
+}
+
 function sessionDirectory(workspace: string): string {
   return path.join(path.resolve(workspace), ".jevio", "sessions");
 }
@@ -176,6 +182,24 @@ export async function appendSessionTurn(session: SessionInfo, user: string, assi
   session.updatedAt = new Date().toISOString();
 }
 
+export async function appendSessionCouncil(session: SessionInfo, kind: CouncilRecordKind, content: string): Promise<void> {
+  await appendFile(session.path, councilBlock(kind, content), "utf8");
+  session.updatedAt = new Date().toISOString();
+}
+
+export async function loadLatestCouncilReview(session: SessionInfo): Promise<string | null> {
+  const document = await readFile(session.path, "utf8");
+  const pattern = /<!-- jevio:council kind=review -->\r?\n([\s\S]*?)\r?\n<!-- \/jevio:council -->/g;
+  let latest: RegExpExecArray | null = null;
+  for (let match = pattern.exec(document); match; match = pattern.exec(document)) latest = match;
+  return latest ? unescapeJevioMarkers(latest[1]) : null;
+}
+
+function councilBlocks(document: string): string {
+  const pattern = /\n<!-- jevio:council kind=(?:plan|review) -->\r?\n[\s\S]*?\r?\n<!-- \/jevio:council -->\r?\n/g;
+  return [...document.matchAll(pattern)].map((match) => match[0]).join("");
+}
+
 export async function appendSessionCompaction(
   session: SessionInfo,
   summary: string,
@@ -201,7 +225,7 @@ format: jevio-session-v1
 ---
 
 # ${title}
-${compactionBlock(summary)}${retained}${todoSnapshot}`;
+${compactionBlock(summary)}${retained}${todoSnapshot}${councilBlocks(document)}`;
   await writeFile(session.path, rewritten, "utf8");
   session.messageCount = retainedMessagesForSession.length;
   session.updatedAt = new Date().toISOString();

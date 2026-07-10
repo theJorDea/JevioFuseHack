@@ -62,6 +62,7 @@ export interface JevioConfig {
   permissions: {
     autoApproveWorkspaceWrites: boolean;
     autoApproveShell: boolean;
+    shellMode: "off" | "tests-only" | "package-manager" | "full";
   };
 }
 
@@ -154,6 +155,7 @@ export interface ToolContext {
   projectCodeMap?: string;
   autoApproveWrites: boolean;
   autoApproveShell: boolean;
+  shellMode?: "off" | "tests-only" | "package-manager" | "full";
   maxToolOutputCharacters?: number;
   codeIndex?: CodeIndexConfig;
   confirm(message: string): Promise<boolean>;

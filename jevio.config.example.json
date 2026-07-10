@@ -64,6 +64,7 @@
   },
   "permissions": {
     "autoApproveWorkspaceWrites": false,
-    "autoApproveShell": false
+    "autoApproveShell": false,
+    "shellMode": "tests-only"
   }
 }

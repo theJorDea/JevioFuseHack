@@ -16,6 +16,25 @@ function clip(value: string, limit = MAX_OUTPUT): string {
   return `${value.slice(0, limit)}\n...[output truncated: ${value.length - limit} characters omitted]`;
 }
 
+function changePreview(file: string, oldContent: string, newContent: string): string {
+  const limit = 6_000;
+  const before = oldContent.length > limit ? `${oldContent.slice(0, limit)}\n...[truncated]` : oldContent;
+  const after = newContent.length > limit ? `${newContent.slice(0, limit)}\n...[truncated]` : newContent;
+  return `Jevio хочет изменить ${file}\n\n--- old\n+++ new\n@@\n${before.split(/\r?\n/).map((line) => `- ${line}`).join("\n")}\n${after.split(/\r?\n/).map((line) => `+ ${line}`).join("\n")}\n\nПрименить изменения?`;
+}
+
+function shellCommandKind(command: string): "test" | "package" | "other" {
+  const normalized = command.trim().toLowerCase();
+  if (/^(?:npm\s+(?:test|run\s+test)|pnpm\s+test|yarn\s+test|bun\s+test|node\s+--test|deno\s+test|pytest\b|cargo\s+test|go\s+test|dotnet\s+test)\b/.test(normalized)) return "test";
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:install|ci|add|remove|update)\b/.test(normalized)) return "package";
+  return "other";
+}
+
+function shellAllowed(command: string, mode: NonNullable<ToolContext["shellMode"]>): boolean {
+  const kind = shellCommandKind(command);
+  return mode === "full" || (mode === "package-manager" && (kind === "test" || kind === "package")) || (mode === "tests-only" && kind === "test");
+}
+
 function isInside(root: string, target: string): boolean {
   const normalizedRoot = process.platform === "win32" ? root.toLowerCase() : root;
   const normalizedTarget = process.platform === "win32" ? target.toLowerCase() : target;
@@ -483,10 +502,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
 
     if (name === "write_file") {
       const file = await resolveWorkspacePath(context.workspace, String(input.path));
-      const approved = context.autoApproveWrites || await context.confirm(`Allow writing ${path.relative(context.workspace, file)}?`);
+      const content = String(input.content ?? "");
+      const existing = await readFile(file, "utf8").catch(() => "");
+      const approved = context.autoApproveWrites || await context.confirm(changePreview(path.relative(context.workspace, file), existing, content));
       if (!approved) return "Permission denied by user.";
       await mkdir(path.dirname(file), { recursive: true });
-      await writeFile(file, String(input.content ?? ""), "utf8");
+      await writeFile(file, content, "utf8");
       invalidateSymbolIndex(context.workspace);
       context.onWorkspaceChange?.();
       return `Wrote ${Buffer.byteLength(String(input.content ?? ""), "utf8")} bytes.`;
@@ -500,9 +521,10 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const first = content.indexOf(oldText);
       if (first < 0) throw new Error("old_text was not found");
       if (content.indexOf(oldText, first + oldText.length) >= 0) throw new Error("old_text occurs more than once; include more context");
-      const approved = context.autoApproveWrites || await context.confirm(`Allow editing ${path.relative(context.workspace, file)}?`);
+      const replacement = `${content.slice(0, first)}${String(input.new_text ?? "")}${content.slice(first + oldText.length)}`;
+      const approved = context.autoApproveWrites || await context.confirm(changePreview(path.relative(context.workspace, file), content, replacement));
       if (!approved) return "Permission denied by user.";
-      await writeFile(file, `${content.slice(0, first)}${String(input.new_text ?? "")}${content.slice(first + oldText.length)}`, "utf8");
+      await writeFile(file, replacement, "utf8");
       invalidateSymbolIndex(context.workspace);
       context.onWorkspaceChange?.();
       return "Replacement applied.";
@@ -511,7 +533,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     if (name === "run_command") {
       const command = String(input.command ?? "").trim();
       if (!command) throw new Error("command must not be empty");
-      const approved = context.autoApproveShell || await context.confirm(`Allow shell command?\n  ${command}`);
+      const shellMode = context.shellMode ?? "full";
+      if (!shellAllowed(command, shellMode)) {
+        return `Command blocked by shellMode '${shellMode}'.`;
+      }
+      const requiresExplicitApproval = shellMode === "package-manager" && shellCommandKind(command) === "package";
+      const approved = !requiresExplicitApproval && context.autoApproveShell || await context.confirm(`Разрешить shell-команду (${shellMode})?\n  ${command}`);
       if (!approved) return "Permission denied by user.";
       const timeout = integer(input.timeout_ms, 120_000, 1000, 600_000);
       try {

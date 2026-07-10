@@ -205,7 +205,7 @@ export async function runCouncilReview(options: TeamOptions): Promise<CouncilRev
   const reviews = reviewerResults.map((result) => result.content);
   const judgeResult = await runner({
     role: "judge",
-    task: `Make the final council-review decision. Inspect the current workspace or diff when needed. Keep only findings that are concrete and actionable, group them by severity, and end with exactly one verdict marker.\n\nREVIEW SCOPE:\n${options.task}\n\n${labeledReports("REVIEWER REPORT", reviews)}`,
+    task: `Make the final council-review decision. Inspect the current workspace or diff when needed. Keep only findings that are concrete and actionable. Use this exact Markdown structure: \"## Critical\", \"## Warnings\", \"## Consensus\", \"## Disagreements\", \"## Recommended fixes\". Write \"None.\" for empty sections. End with exactly one verdict marker.\n\nREVIEW SCOPE:\n${options.task}\n\n${labeledReports("REVIEWER REPORT", reviews)}`,
     config: options.config,
     toolContext: reviewContext,
     history: options.history,
@@ -213,7 +213,7 @@ export async function runCouncilReview(options: TeamOptions): Promise<CouncilRev
     onEvent: options.onEvent,
   });
   const verdict = needsFix(judgeResult.content) ? "FIX" : judgeResult.content.includes("<verdict>PASS</verdict>") ? "PASS" : "FIX";
-  const content = `Вердикт: ${verdict}\n\n${judgeResult.content}`;
+  const content = `# Council Review\n\n## Verdict\n\n${verdict}\n\n${judgeResult.content}`;
 
   return {
     content,

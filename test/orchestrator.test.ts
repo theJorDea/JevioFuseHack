@@ -128,5 +128,6 @@ test("council review combines three focused reports into a judge verdict", async
   assert.deepEqual(calls, ["reviewer", "reviewer", "reviewer", "judge"]);
   assert.deepEqual(approvalModes, [false, false, false, false]);
   assert.equal(result.verdict, "PASS");
-  assert.match(result.content, /^Вердикт: PASS/);
+  assert.match(result.content, /^# Council Review/);
+  assert.match(result.content, /## Verdict\n\nPASS/);
 });
