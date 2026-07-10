@@ -77,6 +77,15 @@ const red = style(31);
 const white = style(37);
 const modalBackground = (text: string): string => `\x1b[48;5;236m${text}\x1b[0m`;
 
+const messageStyles = {
+  you: cyan,
+  fuse: green,
+  error: red,
+  system: dim,
+  tool: yellow,
+} as const;
+type MessageLabel = keyof typeof messageStyles;
+
 function modalSurface(): Box {
   return new Box(1, 1, modalBackground);
 }
@@ -115,18 +124,19 @@ export class InteractiveTui {
   private readonly header = new Text();
   private readonly todos = new Text();
   private readonly status = new Text();
+  private readonly help = new Text();
   private readonly loader: Loader;
   private readonly editor: Editor;
   private busy = false;
   private resolveExit?: () => void;
   private stopped = false;
   private dismissOverlay?: () => void;
-  private liveThinking?: { role: string; text: string; component: Text };
+  private liveThinking?: { role: string; text: string; component: Text; heading: Text; expanded: boolean };
 
   constructor(options: InteractiveTuiOptions) {
     this.options = options;
     this.tui = new TUI(new ProcessTerminal());
-    this.loader = new Loader(this.tui, cyan, dim, "Ready", { frames: [".", "o", "O", "o"], intervalMs: 120 });
+    this.loader = new Loader(this.tui, cyan, dim, "Ready", { frames: ["-", "\\", "|", "/"], intervalMs: 120 });
     this.editor = new Editor(this.tui, { borderColor: cyan, selectList: selectTheme }, { paddingX: 1, autocompleteMaxVisible: 8 });
     const autocomplete = new CombinedAutocompleteProvider(
       SLASH_COMMANDS.map((command) => ({
@@ -145,6 +155,8 @@ export class InteractiveTui {
     this.root.addChild(this.transcript);
     this.root.addChild(this.loader);
     this.root.addChild(this.status);
+    this.help.setText(dim("Enter send · Shift+Enter newline · Tab complete · Esc close · Ctrl+C exit · Ctrl+K commands"));
+    this.root.addChild(this.help);
     this.root.addChild(this.editor);
     this.tui.addChild(this.root);
     this.tui.setFocus(this.editor);
@@ -157,6 +169,14 @@ export class InteractiveTui {
         }
         return { consume: true };
       }
+      if (data === "\x0f" && this.liveThinking) {
+        this.toggleThinking();
+        return { consume: true };
+      }
+      if (data === "\x0b" && !this.busy) {
+        void this.showCommandPalette();
+        return { consume: true };
+      }
       if (data === "\x1b" && this.dismissOverlay) {
         this.dismissOverlay();
         return { consume: true };
@@ -167,7 +187,7 @@ export class InteractiveTui {
 
   async run(): Promise<void> {
     this.refreshHeader();
-    this.setStatus("/ opens commands. Tab accepts a suggestion. Shift+Enter adds a line.", dim);
+    this.setStatus("Ready", dim);
     this.tui.start();
     this.tui.requestRender(true);
     await new Promise<void>((resolve) => {
@@ -178,13 +198,18 @@ export class InteractiveTui {
   setTodos(items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>): void {
     const marker = { pending: "[ ]", in_progress: "[>]", completed: "[x]" } as const;
     this.todos.setText(items.length
-      ? `${dim("TODO")}\n${items.map((item) => `${item.status === "completed" ? dim(marker[item.status]) : cyan(marker[item.status])} ${item.content}`).join("\n")}\n`
+      ? `${boldCyan("Plan")}\n${items.map((item, index) => {
+        const line = (index + 1) + ". " + marker[item.status] + " " + item.content;
+        return item.status === "completed" ? dim(line) : item.status === "in_progress" ? cyan(line) : white(line);
+      }).join("\n")}\n`
       : "");
     this.tui.requestRender();
   }
 
   reportEvent(event: { type: "thinking" | "thinking_delta" | "thinking_done" | "tool" | "progress"; role: string; detail: string }): void {
     if (event.type === "thinking_delta") {
+      this.loader.setMessage("Thinking...");
+      this.setStatus("Thinking...", dim);
       this.appendThinking(event.role, event.detail);
       return;
     }
@@ -197,13 +222,23 @@ export class InteractiveTui {
       : event.type === "progress"
         ? `${event.role.toUpperCase()}  plan  ${event.detail}`
         : `${event.role.toUpperCase()}  ${event.detail}`;
-    const color = event.type === "tool" ? cyan : event.type === "progress" ? green : dim;
+    const color = event.type === "tool" ? messageStyles.tool : event.type === "progress" ? green : dim;
+    const state = event.type === "tool"
+      ? "Running tool..."
+      : event.type === "progress"
+        ? "Planning..."
+        : event.type === "thinking"
+          ? "Thinking..."
+          : "Working...";
+    this.loader.setMessage(state);
     this.appendActivity(label, color);
-    this.setStatus(label, color);
+    this.setStatus(state, color);
   }
 
   async confirm(message: string): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
+      this.loader.setMessage("Waiting for approval...");
+      this.setStatus("Waiting for approval", yellow);
       const overlay = modalSurface();
       overlay.addChild(new Text(yellow(`${message}\n\n`), 1, 1));
       const choices = new SelectList([
@@ -215,6 +250,8 @@ export class InteractiveTui {
         handle.hide();
         this.dismissOverlay = undefined;
         this.tui.setFocus(this.editor);
+        this.loader.setMessage("Thinking...");
+        this.setStatus("Working...", cyan);
         resolve(answer);
       };
       choices.onSelect = (choice) => close(choice.value === "yes");
@@ -241,7 +278,9 @@ export class InteractiveTui {
         handle.hide();
         this.dismissOverlay = undefined;
         this.tui.setFocus(this.editor);
-        if (answer && answer !== "[cancelled]") this.appendMessage("you", answer, cyan);
+        this.loader.setMessage("Thinking...");
+        this.setStatus("Working...", cyan);
+        if (answer && answer !== "[cancelled]") this.appendMessage("you", answer);
         resolve(answer);
       };
       choices.onSelect = (choice) => {
@@ -269,7 +308,9 @@ export class InteractiveTui {
       handle.hide();
       this.dismissOverlay = undefined;
       this.tui.setFocus(this.editor);
-      if (answer && answer !== "[cancelled]") this.appendMessage("you", answer, cyan);
+      this.loader.setMessage("Thinking...");
+      this.setStatus("Working...", cyan);
+      if (answer && answer !== "[cancelled]") this.appendMessage("you", answer);
       resolve(answer);
     };
     input.onSubmit = (answer) => close(answer.trim() || "[cancelled]");
@@ -282,6 +323,11 @@ export class InteractiveTui {
   private async handleSubmit(input: string): Promise<void> {
     const value = input.trim();
     if (!value || this.busy) return;
+    if (value === "/") {
+      this.editor.setText("");
+      await this.showCommandPalette();
+      return;
+    }
     if (/^\/(?:sessions?|resume|provider)(?:\s*)$/i.test(value)) {
       this.editor.addToHistory(input);
       this.editor.setText("");
@@ -289,7 +335,7 @@ export class InteractiveTui {
         if (/^\/provider\s*$/i.test(value)) await this.showProviderPicker();
         else await this.showSessionPicker();
       } catch (error) {
-        this.appendMessage("error", (error as Error).message, red);
+        this.appendMessage("error", (error as Error).message);
       }
       return;
     }
@@ -298,22 +344,25 @@ export class InteractiveTui {
     this.editor.disableSubmit = true;
     this.editor.addToHistory(input);
     this.editor.setText("");
-    if (!value.startsWith("/")) this.appendMessage("you", input, cyan);
-    this.loader.setMessage(value.startsWith("/") ? "Applying command" : "Fuse is working");
-    this.loader.start();
-    this.setStatus("Working...", cyan);
-    try {
+    if (!value.startsWith("/")) this.appendMessage("you", input);
+    this.loader.setMessage(value.startsWith("/") ? "Applying command..." : "Thinking...");
+   this.loader.start();
+   this.setStatus("Working...", cyan);
+    let failed = false;
+   try {
       const result = await this.options.submit(input);
-      if (result.output) this.appendMessage("fuse", result.output, green);
+      if (result.output) this.appendMessage("fuse", result.output);
       this.refreshHeader();
       if (result.exit) this.stop();
       else if (!result.output) this.setStatus("Ready", dim);
-    } catch (error) {
-      this.appendMessage("error", (error as Error).message, red);
+   } catch (error) {
+      failed = true;
+     this.appendMessage("error", (error as Error).message);
       this.setStatus("Task failed", red);
-    } finally {
-      this.loader.stop();
-      this.busy = false;
+   } finally {
+     this.loader.stop();
+      if (!failed) this.setStatus("Ready", dim);
+     this.busy = false;
       this.editor.disableSubmit = false;
       this.tui.setFocus(this.editor);
       this.tui.requestRender();
@@ -323,13 +372,14 @@ export class InteractiveTui {
   private async showSessionPicker(): Promise<void> {
     const sessions = await this.options.listSessions();
     if (!sessions.length) {
-      this.appendMessage("fuse", "No saved sessions in this workspace.", dim);
+      this.appendMessage("system", "No saved sessions in this workspace.");
       return;
     }
+    const currentId = this.options.getSession().id;
     const items: SelectItem[] = sessions.map((session) => ({
       value: session.id,
-      label: session.title,
-      description: `${session.id.slice(0, 8)}  ${session.updatedAt.replace("T", " ").slice(0, 16)}`,
+      label: session.id === currentId ? `* ${session.title}` : session.title,
+      description: `${formatRelativeTime(session.updatedAt)} · ${session.id.slice(0, 8)}`,
     }));
     const list = new SelectList(items, 10, selectTheme);
     const overlay = modalSurface();
@@ -356,11 +406,11 @@ export class InteractiveTui {
     this.loader.setMessage("Loading session");
     this.loader.start();
     try {
-      this.appendMessage("fuse", await this.options.resumeSession(id), green);
+      this.appendMessage("system", await this.options.resumeSession(id));
       this.refreshHeader();
       this.setStatus("Ready", dim);
     } catch (error) {
-      this.appendMessage("error", (error as Error).message, red);
+      this.appendMessage("error", (error as Error).message);
     } finally {
       this.loader.stop();
       this.busy = false;
@@ -409,11 +459,11 @@ export class InteractiveTui {
 
   private async chooseProvider(name: string): Promise<void> {
     try {
-      this.appendMessage("fuse", await this.options.selectProvider(name), green);
+      this.appendMessage("system", await this.options.selectProvider(name));
       this.refreshHeader();
       this.setStatus("Ready", dim);
     } catch (error) {
-      this.appendMessage("error", (error as Error).message, red);
+      this.appendMessage("error", (error as Error).message);
     }
   }
 
@@ -467,15 +517,16 @@ export class InteractiveTui {
       const name = values.name ?? "";
       const baseUrl = values.baseUrl ?? "";
       const message = await this.options.addProvider({ name, baseUrl, apiKey: values.apiKey || undefined, model: values.model ?? "" });
-      this.appendMessage("fuse", message, green);
+      this.appendMessage("system", message);
       this.refreshHeader();
       this.setStatus("Ready", dim);
     } catch (error) {
-      this.appendMessage("error", (error as Error).message, red);
+      this.appendMessage("error", (error as Error).message);
     }
   }
 
-  private appendMessage(label: string, content: string, color: (text: string) => string): void {
+  private appendMessage(label: MessageLabel, content: string): void {
+    const color = messageStyles[label];
     this.transcript.addChild(new Text(color(label.toUpperCase()), 1, 1));
     this.transcript.addChild(new Markdown(content, 1, 0, markdownTheme));
     this.transcript.addChild(new Text(""));
@@ -492,16 +543,17 @@ export class InteractiveTui {
     if (!this.liveThinking || this.liveThinking.role !== role) {
       this.finalizeThinking();
       const component = new Text("", 1, 0);
-      this.transcript.addChild(new Text(dim(`${role.toUpperCase()} THINKING`), 1, 1));
+      const heading = new Text(dim(`${role.toUpperCase()} THINKING  (Ctrl+O to expand)`), 1, 1);
+      this.transcript.addChild(heading);
       this.transcript.addChild(component);
       this.transcript.addChild(new Text(""));
-      this.liveThinking = { role, text: "", component };
+      this.liveThinking = { role, text: "", component, heading, expanded: false };
     }
     this.liveThinking.text += delta;
     const limit = 6_000;
-    const visible = this.liveThinking.text.length > limit
-      ? `... ${this.liveThinking.text.slice(-limit)}`
-      : this.liveThinking.text;
+    const visible = this.liveThinking.expanded
+      ? (this.liveThinking.text.length > limit ? `... ${this.liveThinking.text.slice(-limit)}` : this.liveThinking.text)
+      : this.liveThinking.text.split("\n").slice(-12).join("\n");
     this.liveThinking.component.setText(dim(visible));
     this.tui.requestRender();
   }
@@ -510,6 +562,44 @@ export class InteractiveTui {
     if (!this.liveThinking || (role && this.liveThinking.role !== role)) return;
     this.liveThinking = undefined;
     this.tui.requestRender();
+  }
+
+  private toggleThinking(): void {
+    if (!this.liveThinking) return;
+    this.liveThinking.expanded = !this.liveThinking.expanded;
+    this.liveThinking.heading.setText(dim(`${this.liveThinking.role.toUpperCase()} THINKING  (Ctrl+O to ${this.liveThinking.expanded ? "collapse" : "expand"})`));
+    const limit = 6_000;
+    const visible = this.liveThinking.expanded
+      ? (this.liveThinking.text.length > limit ? `... ${this.liveThinking.text.slice(-limit)}` : this.liveThinking.text)
+      : this.liveThinking.text.split("\n").slice(-12).join("\n");
+    this.liveThinking.component.setText(dim(visible));
+    this.tui.requestRender();
+  }
+
+  private async showCommandPalette(): Promise<void> {
+    const items: SelectItem[] = SLASH_COMMANDS.map((command) => ({
+      value: `/${command.name}`,
+      label: `/${command.name}`,
+      description: command.argumentHint ? `${command.description} ${command.argumentHint}` : command.description,
+    }));
+    const list = new SelectList(items, 12, selectTheme);
+    const overlay = modalSurface();
+    overlay.addChild(new Text(boldCyan("Commands\n"), 1, 1));
+    overlay.addChild(list);
+    const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "70%", anchor: "center", margin: 2 });
+    const close = () => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+    };
+    this.dismissOverlay = close;
+   list.onSelect = (item) => {
+     close();
+     this.editor.setText(`${item.value} `);
+      this.tui.requestRender();
+   };
+    list.onCancel = close;
+    this.tui.setFocus(list);
   }
 
   private refreshHeader(): void {
@@ -530,4 +620,16 @@ export class InteractiveTui {
     this.tui.stop();
     this.resolveExit?.();
   }
+}
+
+function formatRelativeTime(value: string): string {
+  const age = Math.max(0, Date.now() - Date.parse(value));
+  const minutes = Math.floor(age / 60_000);
+  if (minutes < 1) return "updated just now";
+  if (minutes < 60) return "updated " + minutes + "m ago";
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return "updated " + hours + "h ago";
+  const days = Math.floor(hours / 24);
+  if (days < 30) return "updated " + days + "d ago";
+  return "updated " + value.slice(0, 10);
 }
