@@ -14,6 +14,7 @@ import {
   needsAutoCompaction,
 } from "./compaction.ts";
 import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "./config.ts";
+import { CogneeMemory, completedTurnMemory } from "./memory.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import { createPlanDocument, writePlanDocument, type PlanDocument } from "./plan.ts";
 import {
@@ -103,6 +104,8 @@ const INTERACTIVE_HELP = `Команды сессии:
   /orchestrate                 Вернуться к динамической оркестрации
   /memory                      Показать память проекта
   /memory add <text>           Добавить запись в память проекта
+  /memory status               Проверить подключение Cognee
+  /memory sync                 Синхронизировать MEMORY.md с Cognee
   /memory clear                Очистить память проекта
   /help                        Показать команды
   /exit                        Выйти
@@ -317,6 +320,17 @@ async function makeContext(options: CliOptions, confirm: ToolContext["confirm"])
 async function doctor(options: CliOptions): Promise<void> {
   const config = await loadConfig(options.workspace, options.configPath);
   let failures = 0;
+  const memory = new CogneeMemory(config.memory.cognee, options.workspace);
+  if (memory.enabled) {
+    const status = await memory.status();
+    if (status.available) console.log(`OK   Cognee memory: ${status.detail}; dataset ${status.dataset}`);
+    else {
+      console.log(`FAIL Cognee memory: ${status.detail}`);
+      failures += 1;
+    }
+  } else {
+    console.log("INFO Cognee memory: disabled; using Markdown memory only");
+  }
   if (config.codeIndex.enabled && config.codeIndex.backend !== "builtin") {
     const ctags = await getCtagsStatus();
     if (ctags.available) console.log(`OK   code index: ${ctags.detail}`);
@@ -425,6 +439,7 @@ async function main(): Promise<void> {
     return /^(y|yes)$/i.test(answer.trim());
   };
   const { config, context } = await makeContext(options, confirm);
+  const cogneeMemory = new CogneeMemory(config.memory.cognee, options.workspace);
   context.askUser = async (question, choices) => {
     if (tui) return tui.askUser(question, choices);
     if (!terminal) return "[unavailable: non-interactive run]";
@@ -452,6 +467,23 @@ async function main(): Promise<void> {
 
   let active = await initialSession(options, terminal);
   let history = active.history;
+  const rememberCognee = async (content: string, filename: string): Promise<string | undefined> => {
+    if (!cogneeMemory.enabled) return undefined;
+    try {
+      await cogneeMemory.remember(content, active.info.id, filename);
+      return undefined;
+    } catch (error) {
+      const warning = `Cognee write skipped: ${(error as Error).message}`;
+      reportEvent({ type: "thinking", role: "orchestrator", detail: warning });
+      return warning;
+    }
+  };
+  const recordSuccessfulTurn = async (task: string, content: string): Promise<void> => {
+    await appendSessionTurn(active.info, task, content);
+    if (config.memory.cognee.rememberCompletedTurns) {
+      await rememberCognee(completedTurnMemory(task, content), `turn-${active.info.messageCount}.md`);
+    }
+  };
   let workspaceMutationCount = 0;
   context.updateTodos = async (items) => {
     active.todos = items;
@@ -587,11 +619,23 @@ async function main(): Promise<void> {
       onEvent: reportEvent,
     });
     await appendSessionCompaction(active.info, compacted.summary, compacted.retainedMessages);
+    if (config.memory.cognee.rememberCompactions) {
+      await rememberCognee(`# Jevio context checkpoint\n\n${compacted.summary}`, `compaction-${Date.now()}.md`);
+    }
     history = compacted.history;
     return `Context compacted: ~${beforeTokens} -> ~${estimateHistoryTokens(history)} tokens; ${compacted.retainedMessages.length} recent messages retained.`;
   };
   const executeTask = async (task: string): Promise<string> => {
     modeSuggestionUsed = false;
+    context.retrievedMemory = undefined;
+    if (cogneeMemory.enabled) {
+      try {
+        context.retrievedMemory = await cogneeMemory.recall(task, active.info.id);
+        if (context.retrievedMemory) reportEvent({ type: "thinking", role: "orchestrator", detail: "recalled relevant Cognee memory" });
+      } catch (error) {
+        reportEvent({ type: "thinking", role: "orchestrator", detail: `Cognee recall skipped: ${(error as Error).message}` });
+      }
+    }
     let planDocument: PlanDocument | undefined;
     const approvePlan = async (plan: string): Promise<{ decision: "approve" | "reject" | "revise"; feedback?: string }> => {
       planDocument ??= await createPlanDocument(options.workspace, active.info.id);
@@ -626,6 +670,7 @@ async function main(): Promise<void> {
     }
     const staticContext = [
       context.projectMemory ?? "",
+      context.retrievedMemory ?? "",
       context.projectCodeMap ?? "",
       ...context.skills.map((skill) => `${skill.name}: ${skill.description} ${skill.whenToUse ?? ""}`),
       task,
@@ -659,7 +704,7 @@ async function main(): Promise<void> {
         `## Review\n\n${result.review}`,
       ].join("\n\n"));
       history = [...history, { role: "user", content: task }, { role: "assistant", content }];
-      await appendSessionTurn(active.info, task, content);
+      await recordSuccessfulTurn(task, content);
       return content;
     }
     if (mode === "council-review") {
@@ -675,7 +720,7 @@ async function main(): Promise<void> {
         ...result.reviews.map((review, index) => `## Reviewer ${index + 1}\n\n${review}`),
       ].join("\n\n"));
       history = [...history, { role: "user", content: task }, { role: "assistant", content: result.content }];
-      await appendSessionTurn(active.info, task, result.content);
+      await recordSuccessfulTurn(task, result.content);
       return result.content;
     }
     if (mode === "team") {
@@ -693,7 +738,7 @@ async function main(): Promise<void> {
       }
       const content = `${result.content}\n\nReview:\n${result.review}`;
       history = [...history, { role: "user", content: task }, { role: "assistant", content }];
-      await appendSessionTurn(active.info, task, content);
+      await recordSuccessfulTurn(task, content);
       return content;
     }
     const role = mode === "direct" ? "coder" : "orchestrator";
@@ -716,11 +761,11 @@ async function main(): Promise<void> {
         throw new Error("Coder finished without modifying the workspace.");
       }
       history = coder.history;
-      await appendSessionTurn(active.info, task, coder.content);
+      await recordSuccessfulTurn(task, coder.content);
       return coder.content;
     }
     history = result.history;
-    await appendSessionTurn(active.info, task, result.content);
+    await recordSuccessfulTurn(task, result.content);
     return result.content;
   };
 
@@ -750,7 +795,7 @@ async function main(): Promise<void> {
     const result = await runAgent({ role: "coder", task, config, toolContext: context, history, onEvent: reportEvent });
     if (workspaceMutationCount === mutationsBefore) throw new Error("Coder finished without modifying the workspace.");
     history = result.history;
-    await appendSessionTurn(active.info, "/fix-review", result.content);
+    await recordSuccessfulTurn("/fix-review", result.content);
     return result.content;
   };
   const handleInteractiveInput = async (answer: string, useTuiPicker = false): Promise<{ output?: string; exit?: boolean }> => {
@@ -845,18 +890,44 @@ async function main(): Promise<void> {
       }
     }
     if (command === "/memory") {
+      if (parts[0] === "status") {
+        const status = await cogneeMemory.status();
+        return {
+          output: [
+            `Markdown: ${context.projectMemory?.trim() ? "loaded" : "empty"}`,
+            `Cognee: ${status.enabled ? (status.available ? "connected" : "unavailable") : "disabled"}`,
+            `Dataset: ${status.dataset}`,
+            `Detail: ${status.detail}`,
+          ].join("\n"),
+        };
+      }
+      if (parts[0] === "sync") {
+        if (!cogneeMemory.enabled) return { output: "Cognee memory is disabled in jevio.config.json." };
+        const document = await loadProjectMemory(options.workspace);
+        const warning = await rememberCognee(document, "MEMORY.md");
+        return { output: warning ?? `MEMORY.md synchronized with Cognee dataset ${cogneeMemory.dataset}.` };
+      }
       if (parts[0] === "add") {
         const entry = parts.slice(1).join(" ").trim();
         if (!entry) return { output: "Использование: /memory add <текст>" };
         const file = await appendProjectMemory(options.workspace, entry);
         context.projectMemory = await loadProjectMemory(options.workspace);
-        return { output: `Memory updated: ${file}` };
+        const warning = await rememberCognee(`# Explicit project memory\n\n${entry}`, `explicit-${Date.now()}.md`);
+        return { output: `Memory updated: ${file}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
       }
       if (parts[0] === "clear") {
         if (!(await confirm("Очистить память проекта?"))) return { output: "Очистка памяти отменена." };
         const file = await clearProjectMemory(options.workspace);
         context.projectMemory = "";
-        return { output: `Память очищена: ${file}` };
+        let remote = "";
+        if (cogneeMemory.enabled) {
+          try {
+            remote = await cogneeMemory.forget() ? " Cognee dataset deleted." : " Cognee dataset was already empty.";
+          } catch (error) {
+            remote = ` Cognee cleanup failed: ${(error as Error).message}`;
+          }
+        }
+        return { output: `Память очищена: ${file}.${remote}` };
       }
       return { output: context.projectMemory?.trim() || "Память проекта пуста." };
     }

@@ -1,6 +1,6 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CodeIndexConfig, JevioConfig, PartialJevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
+import type { CodeIndexConfig, CogneeMemoryConfig, JevioConfig, PartialJevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
 
 const DEFAULT_CONFIG: JevioConfig = {
   defaultProvider: "ollama",
@@ -39,6 +39,19 @@ const DEFAULT_CONFIG: JevioConfig = {
     cacheTtlMs: 5_000,
     maxResults: 20,
     mapMaxCharacters: 12_000,
+  },
+  memory: {
+    cognee: {
+      enabled: false,
+      baseUrl: "http://localhost:8000",
+      authMode: "x-api-key",
+      timeoutMs: 2_000,
+      maxResults: 6,
+      maxContextCharacters: 8_000,
+      maxRememberCharacters: 16_000,
+      rememberCompletedTurns: true,
+      rememberCompactions: true,
+    },
   },
   permissions: {
     autoApproveWorkspaceWrites: false,
@@ -79,6 +92,18 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
   if (!["off", "tests-only", "package-manager", "full"].includes(shellMode)) {
     throw new Error("Invalid permissions.shellMode.");
   }
+  const cognee = { ...DEFAULT_CONFIG.memory.cognee, ...input.memory?.cognee } as CogneeMemoryConfig;
+  if (!["x-api-key", "bearer"].includes(cognee.authMode)) throw new Error("Invalid memory.cognee.authMode.");
+  if (!Number.isFinite(cognee.timeoutMs) || cognee.timeoutMs <= 0) throw new Error("memory.cognee.timeoutMs must be positive.");
+  if (!Number.isFinite(cognee.maxResults) || cognee.maxResults <= 0) throw new Error("memory.cognee.maxResults must be positive.");
+  if (!Number.isFinite(cognee.maxContextCharacters) || cognee.maxContextCharacters <= 0) throw new Error("memory.cognee.maxContextCharacters must be positive.");
+  if (!Number.isFinite(cognee.maxRememberCharacters) || cognee.maxRememberCharacters <= 0) throw new Error("memory.cognee.maxRememberCharacters must be positive.");
+  try {
+    const url = new URL(cognee.baseUrl);
+    if (!/^https?:$/.test(url.protocol)) throw new Error();
+  } catch {
+    throw new Error("memory.cognee.baseUrl must be an absolute http(s) URL.");
+  }
   return {
     defaultProvider: input.defaultProvider ?? DEFAULT_CONFIG.defaultProvider,
     providers: { ...DEFAULT_CONFIG.providers, ...input.providers } as Record<string, ProviderConfig>,
@@ -86,6 +111,7 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
     agent: { ...DEFAULT_CONFIG.agent, ...input.agent },
     compaction: { ...DEFAULT_CONFIG.compaction, ...input.compaction },
     codeIndex: { ...DEFAULT_CONFIG.codeIndex, ...input.codeIndex } as CodeIndexConfig,
+    memory: { cognee },
     permissions: { ...DEFAULT_CONFIG.permissions, ...input.permissions, shellMode },
   };
 }

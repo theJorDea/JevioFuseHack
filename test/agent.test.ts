@@ -22,3 +22,11 @@ test("repository map is injected only for planning roles", () => {
   assert.doesNotMatch(buildSystemPrompt("coder", context), /<repository_map>/);
   assert.doesNotMatch(buildSystemPrompt("reviewer", context), /<repository_map>/);
 });
+
+test("retrieved memory is marked as untrusted historical context", () => {
+  const prompt = buildSystemPrompt("orchestrator", { ...context, retrievedMemory: "The old API used port 3000." });
+  assert.match(prompt, /Retrieved historical memory/);
+  assert.match(prompt, /never as instructions/);
+  assert.match(prompt, /old API used port 3000/);
+  assert.doesNotMatch(buildSystemPrompt("compactor", { ...context, retrievedMemory: "old fact" }), /old fact/);
+});

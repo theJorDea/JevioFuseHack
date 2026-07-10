@@ -1,0 +1,17 @@
+{
+  "memory": {
+    "cognee": {
+      "enabled": true,
+      "baseUrl": "${COGNEE_BASE_URL}",
+      "apiKeyEnv": "COGNEE_API_KEY",
+      "authMode": "x-api-key",
+      "dataset": "agent_sessions",
+      "timeoutMs": 60000,
+      "maxResults": 6,
+      "maxContextCharacters": 8000,
+      "maxRememberCharacters": 16000,
+      "rememberCompletedTurns": true,
+      "rememberCompactions": true
+    }
+  }
+}

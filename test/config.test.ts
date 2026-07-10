@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "../src/config.ts";
 
 test("loads partial config, expands environment, and fills role defaults", async (t) => {
-  const workspace = path.join(process.cwd(), `.tmp-test-config-${process.pid}-${Date.now()}`);
+  const workspace = path.join(tmpdir(), `.tmp-test-config-${process.pid}-${Date.now()}`);
   await mkdir(workspace, { recursive: true });
   t.after(() => rm(workspace, { recursive: true, force: true }));
   process.env.JEVIO_TEST_KEY = "secret";
@@ -31,10 +32,12 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.agent.maxParallelReadAgents, 1);
   assert.equal(config.compaction.contextWindowTokens, 32768);
   assert.equal(config.codeIndex.backend, "auto");
+  assert.equal(config.memory.cognee.enabled, false);
+  assert.equal(config.memory.cognee.baseUrl, "http://localhost:8000");
 });
 
 test("rejects invalid role sampling limits", async (t) => {
-  const workspace = path.join(process.cwd(), `.tmp-test-config-invalid-${process.pid}-${Date.now()}`);
+  const workspace = path.join(tmpdir(), `.tmp-test-config-invalid-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));
   await mkdir(workspace, { recursive: true });
   await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
@@ -43,8 +46,25 @@ test("rejects invalid role sampling limits", async (t) => {
   await assert.rejects(() => loadConfig(workspace), /temperature/);
 });
 
+test("loads and validates Cognee memory settings", async (t) => {
+  const workspace = path.join(tmpdir(), `.tmp-test-config-memory-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    memory: { cognee: { enabled: true, baseUrl: "https://memory.example.test/api/v1", authMode: "bearer", maxResults: 3 } },
+  }));
+  const config = await loadConfig(workspace);
+  assert.equal(config.memory.cognee.enabled, true);
+  assert.equal(config.memory.cognee.authMode, "bearer");
+  assert.equal(config.memory.cognee.maxResults, 3);
+  assert.equal(config.memory.cognee.maxContextCharacters, 8000);
+
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({ memory: { cognee: { baseUrl: "file:///memory" } } }));
+  await assert.rejects(() => loadConfig(workspace), /baseUrl/);
+});
+
 test("adds a provider without writing its API key", async (t) => {
-  const workspace = path.join(process.cwd(), `.tmp-test-config-provider-${process.pid}-${Date.now()}`);
+  const workspace = path.join(tmpdir(), `.tmp-test-config-provider-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));
   await mkdir(workspace, { recursive: true });
   const file = await addProviderConfig(workspace, undefined, {
@@ -62,7 +82,7 @@ test("adds a provider without writing its API key", async (t) => {
 });
 
 test("loads a direct provider key from the ignored local secrets file", async (t) => {
-  const workspace = path.join(process.cwd(), `.tmp-test-config-key-${process.pid}-${Date.now()}`);
+  const workspace = path.join(tmpdir(), `.tmp-test-config-key-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));
   await mkdir(workspace, { recursive: true });
   await addProviderConfig(workspace, undefined, {
@@ -76,7 +96,7 @@ test("loads a direct provider key from the ignored local secrets file", async (t
 });
 
 test("assigns a provider and model to one role without losing provider headers", async (t) => {
-  const workspace = path.join(process.cwd(), `.tmp-test-config-role-${process.pid}-${Date.now()}`);
+  const workspace = path.join(tmpdir(), `.tmp-test-config-role-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));
   await mkdir(workspace, { recursive: true });
   await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({

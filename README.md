@@ -72,11 +72,62 @@ prompt orchestrator и всех специалистов:
 
     /memory
     /memory add Всегда запускать integration tests для API
+    /memory status
+    /memory sync
     /memory clear
 
 MEMORY.md считается пользовательской инструкцией, но по умолчанию исключён из
 Git. Если правила должны быть общими для команды, их лучше переносить в
 AGENTS.md или version-controlled Skill.
+
+### Cognee
+
+Cognee можно включить как дополнительный семантический слой над Markdown-памятью.
+Перед каждой задачей Jevio ищет относящиеся к ней прошлые решения и добавляет
+результаты в отдельный недоверенный блок контекста. Текущий запрос, состояние
+репозитория и MEMORY.md всегда имеют более высокий приоритет. После успешной
+задачи в Cognee сохраняется только пара запрос/итоговый ответ без tool trace;
+также сохраняются явные `/memory add` и compaction checkpoints.
+
+Запустите локальный Cognee API по его официальной инструкции, например:
+
+    docker run --env-file ./.env -p 8000:8000 --rm -it cognee/cognee:main
+
+В `.env` Cognee требуется как минимум `LLM_API_KEY`. Затем включите интеграцию:
+
+    {
+      "memory": {
+        "cognee": {
+          "enabled": true,
+          "baseUrl": "http://localhost:8000",
+          "authMode": "x-api-key",
+          "timeoutMs": 2000,
+          "maxResults": 6,
+          "maxContextCharacters": 8000,
+          "maxRememberCharacters": 16000,
+          "rememberCompletedTurns": true,
+          "rememberCompactions": true
+        }
+      }
+    }
+
+Для Cognee Cloud добавьте `apiKeyEnv: "COGNEE_API_KEY"`; ключ передаётся через
+`X-Api-Key`. Для self-hosted API с включённой Bearer-аутентификацией используйте
+`authMode: "bearer"` и переменную из `apiKeyEnv`. Если `dataset` не задан,
+Jevio создаёт устойчивое имя из названия и хеша абсолютного пути проекта.
+
+Проверка и управление:
+
+    node src/cli.ts doctor       # проверяет /health
+    /memory status              # соединение и имя dataset
+    /memory sync                # загрузить текущий MEMORY.md
+    /memory clear               # очистить MEMORY.md и dataset этого проекта
+
+Cognee работает в fail-open режиме: timeout, отсутствие сервиса или ошибка
+записи отображаются как предупреждение, но не прерывают задачу. При использовании
+облачного Cognee учитывайте, что запросы и итоговые ответы передаются внешнему
+сервису; для чувствительных репозиториев используйте self-hosted вариант или
+отключите `rememberCompletedTurns`.
 
 ## Compaction
 

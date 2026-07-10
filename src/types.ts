@@ -29,6 +29,20 @@ export interface CodeIndexConfig {
   mapMaxCharacters: number;
 }
 
+export interface CogneeMemoryConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKeyEnv?: string;
+  authMode: "x-api-key" | "bearer";
+  dataset?: string;
+  timeoutMs: number;
+  maxResults: number;
+  maxContextCharacters: number;
+  maxRememberCharacters: number;
+  rememberCompletedTurns: boolean;
+  rememberCompactions: boolean;
+}
+
 export type PartialJevioConfig = {
   defaultProvider?: string;
   providers?: Record<string, Partial<ProviderConfig>>;
@@ -36,6 +50,7 @@ export type PartialJevioConfig = {
   agent?: Partial<JevioConfig["agent"]>;
   compaction?: Partial<JevioConfig["compaction"]>;
   codeIndex?: Partial<CodeIndexConfig>;
+  memory?: { cognee?: Partial<CogneeMemoryConfig> };
   permissions?: Partial<JevioConfig["permissions"]>;
 };
 
@@ -60,6 +75,9 @@ export interface JevioConfig {
     prompt: string;
   };
   codeIndex: CodeIndexConfig;
+  memory: {
+    cognee: CogneeMemoryConfig;
+  };
   permissions: {
     autoApproveWorkspaceWrites: boolean;
     autoApproveShell: boolean;
@@ -153,6 +171,7 @@ export interface ToolContext {
   workspace: string;
   skills: SkillMetadata[];
   projectMemory?: string;
+  retrievedMemory?: string;
   projectCodeMap?: string;
   autoApproveWrites: boolean;
   autoApproveShell: boolean;

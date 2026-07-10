@@ -62,6 +62,19 @@
     "maxResults": 20,
     "mapMaxCharacters": 12000
   },
+  "memory": {
+    "cognee": {
+      "enabled": false,
+      "baseUrl": "http://localhost:8000",
+      "authMode": "x-api-key",
+      "timeoutMs": 2000,
+      "maxResults": 6,
+      "maxContextCharacters": 8000,
+      "maxRememberCharacters": 16000,
+      "rememberCompletedTurns": true,
+      "rememberCompactions": true
+    }
+  },
   "permissions": {
     "autoApproveWorkspaceWrites": false,
     "autoApproveShell": false,
