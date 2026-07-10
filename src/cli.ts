@@ -12,7 +12,7 @@ import {
   needsAutoCompaction,
 } from "./compaction.ts";
 import { addProviderConfig, loadConfig, saveProviderSecret } from "./config.ts";
-import { runTeam } from "./orchestrator.ts";
+import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import {
   appendProjectMemory,
   appendSessionCompaction,
@@ -38,12 +38,14 @@ import { isImplementationRequest } from "./task-intent.ts";
 import type { ChatMessage, ToolContext } from "./types.ts";
 
 interface CliOptions {
-  command: "run" | "init" | "doctor" | "skills" | "help";
+  command: "run" | "init" | "doctor" | "skills" | "review" | "help";
   task: string;
   workspace: string;
   configPath?: string;
   team: boolean;
   direct: boolean;
+  councilPlan: boolean;
+  councilReview: boolean;
   yes: boolean;
   continueSession: boolean;
   sessionRequested: boolean;
@@ -62,7 +64,9 @@ Options:
   --continue, -c               Продолжить последнюю сессию в проекте
   --session, -S [id]           Выбрать или продолжить конкретную сессию
   --resume, -r [id]            Alias for --session
-  --team                       Run architect -> coder -> reviewer pipeline
+  --team                       Конвейер architect -> coder -> reviewer
+  --council-plan               3 architect -> judge -> coder -> reviewer
+  --council-review             3 reviewer по рискам -> judge
   --direct                     Работать напрямую через coder без оркестрации
   --yes, -y                    Автоматически разрешать записи и shell-команды
   --workspace, -w <path>       Папка проекта (по умолчанию текущая)
@@ -81,9 +85,11 @@ const INTERACTIVE_HELP = `Команды сессии:
   /compact status              Показать настройки сжатия и оценку контекста
   /provider [name]             Показать или сменить провайдера для сессии
   /team                        Использовать architect -> coder -> reviewer для следующих задач
-  /direct                      Use coder directly for next tasks
-  /orchestrate                 Return to dynamic orchestration
-  /memory                      Show project memory
+  /council-plan                Совет архитекторов, затем coder и reviewer
+  /council-review              Совет ревьюеров текущих изменений
+  /direct                      Работать напрямую через coder для следующих задач
+  /orchestrate                 Вернуться к динамической оркестрации
+  /memory                      Показать память проекта
   /memory add <text>           Добавить запись в память проекта
   /memory clear                Очистить память проекта
   /help                        Показать команды
@@ -97,6 +103,8 @@ function parseArgs(argv: string[]): CliOptions {
     workspace: process.cwd(),
     team: false,
     direct: false,
+    councilPlan: false,
+    councilReview: false,
     yes: false,
     continueSession: false,
     sessionRequested: false,
@@ -104,7 +112,7 @@ function parseArgs(argv: string[]): CliOptions {
   const taskParts: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (index === 0 && ["init", "doctor", "skills"].includes(argument)) {
+    if (index === 0 && ["init", "doctor", "skills", "review"].includes(argument)) {
       options.command = argument as CliOptions["command"];
     } else if (argument === "--help" || argument === "-h") {
       options.command = "help";
@@ -116,6 +124,10 @@ function parseArgs(argv: string[]): CliOptions {
       if (candidate && !candidate.startsWith("-")) options.sessionId = argv[++index];
     } else if (argument === "--team") {
       options.team = true;
+    } else if (argument === "--council-plan") {
+      options.councilPlan = true;
+    } else if (argument === "--council-review" || argument === "--council") {
+      options.councilReview = true;
     } else if (argument === "--direct") {
       options.direct = true;
     } else if (argument === "--yes" || argument === "-y") {
@@ -136,6 +148,13 @@ function parseArgs(argv: string[]): CliOptions {
     throw new Error("--continue and --session cannot be used together.");
   }
   options.task = taskParts.join(" ").trim();
+  if (options.command === "review") {
+    options.councilReview = true;
+    if (!options.task) options.task = "Review current workspace changes.";
+  }
+  if ([options.team, options.direct, options.councilPlan, options.councilReview].filter(Boolean).length > 1) {
+    throw new Error("Choose only one execution mode.");
+  }
   return options;
 }
 
@@ -340,7 +359,11 @@ async function main(): Promise<void> {
   context.onWorkspaceChange = () => {
     workspaceMutationCount += 1;
   };
-  let mode: "team" | "direct" | "orchestrate" = options.team
+  let mode: "team" | "direct" | "orchestrate" | "council-plan" | "council-review" = options.councilPlan
+    ? "council-plan"
+    : options.councilReview
+      ? "council-review"
+      : options.team
     ? "team"
     : options.direct
       ? "direct"
@@ -424,6 +447,31 @@ async function main(): Promise<void> {
       }
     }
     if (active.info.title === NEW_SESSION_TITLE) await renameSession(active.info, task.split(/\r?\n/)[0].slice(0, 80));
+    if (mode === "council-plan") {
+      const result = await runCouncilPlan({
+        task,
+        config,
+        toolContext: context,
+        history,
+        onEvent: reportEvent,
+      });
+      const content = `${result.content}\n\nВыбранный план совета:\n${result.plan}\n\nРевью:\n${result.review}`;
+      history = [...history, { role: "user", content: task }, { role: "assistant", content }];
+      await appendSessionTurn(active.info, task, content);
+      return content;
+    }
+    if (mode === "council-review") {
+      const result = await runCouncilReview({
+        task,
+        config,
+        toolContext: context,
+        history,
+        onEvent: reportEvent,
+      });
+      history = [...history, { role: "user", content: task }, { role: "assistant", content: result.content }];
+      await appendSessionTurn(active.info, task, result.content);
+      return result.content;
+    }
     if (mode === "team") {
       const result = await runTeam({
         task,
@@ -481,6 +529,14 @@ async function main(): Promise<void> {
     if (command === "/team") {
       mode = "team";
       return { output: "Mode: team (architect -> coder -> reviewer)." };
+    }
+    if (command === "/council-plan") {
+      mode = "council-plan";
+      return { output: "Режим совета планирования: 3 architect -> judge -> coder -> reviewer." };
+    }
+    if (command === "/council-review") {
+      mode = "council-review";
+      return { output: "Режим совета ревью: security/correctness/tests reviewers -> judge." };
     }
     if (command === "/direct") {
       mode = "direct";

@@ -1,4 +1,4 @@
-export type RoleName = "orchestrator" | "coder" | "architect" | "reviewer" | "compactor";
+export type RoleName = "orchestrator" | "coder" | "architect" | "reviewer" | "judge" | "compactor";
 export type SpecialistRoleName = "architect" | "coder" | "reviewer";
 
 export interface ProviderConfig {

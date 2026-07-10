@@ -24,6 +24,7 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.providers.test.apiKey, "secret");
   assert.equal(config.roles.coder.model, "coder-test");
   assert.equal(config.roles.orchestrator.model, "qwen3:14b");
+  assert.equal(config.roles.judge.model, "qwen3:14b");
   assert.equal(config.roles.compactor.model, "qwen3:14b");
   assert.equal(config.agent.maxTurns, 24);
   assert.equal(config.agent.keepRecentToolResults, 6);

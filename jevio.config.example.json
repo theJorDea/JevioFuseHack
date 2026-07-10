@@ -26,6 +26,11 @@
       "model": "qwen3:14b",
       "temperature": 0.1
     },
+    "judge": {
+      "provider": "ollama",
+      "model": "qwen3:14b",
+      "temperature": 0.1
+    },
     "compactor": {
       "provider": "ollama",
       "model": "qwen3:14b",

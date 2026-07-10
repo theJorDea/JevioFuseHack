@@ -12,6 +12,7 @@ const DEFAULT_CONFIG: JevioConfig = {
     coder: { model: "qwen3-coder:30b", temperature: 0.15 },
     architect: { model: "qwen3:14b", temperature: 0.2 },
     reviewer: { model: "qwen3:14b", temperature: 0.1 },
+    judge: { model: "qwen3:14b", temperature: 0.1 },
     compactor: { model: "qwen3:14b", temperature: 0.1 },
   },
   agent: {
@@ -68,7 +69,7 @@ function validateRoleConfig(role: RoleName, config: RoleConfig): void {
 
 function mergeConfig(input: PartialJevioConfig): JevioConfig {
   const roles = {} as Record<RoleName, RoleConfig>;
-  for (const role of ["orchestrator", "coder", "architect", "reviewer", "compactor"] as RoleName[]) {
+  for (const role of ["orchestrator", "coder", "architect", "reviewer", "judge", "compactor"] as RoleName[]) {
     roles[role] = { ...DEFAULT_CONFIG.roles[role], ...input.roles?.[role] };
     validateRoleConfig(role, roles[role]);
   }
@@ -170,7 +171,7 @@ export async function addProviderConfig(
   const roles = input.roles && typeof input.roles === "object" && !Array.isArray(input.roles)
     ? input.roles as Record<string, Record<string, unknown>>
     : {};
-  for (const role of ["orchestrator", "coder", "architect", "reviewer", "compactor"]) {
+  for (const role of ["orchestrator", "coder", "architect", "reviewer", "judge", "compactor"]) {
     roles[role] = {
       ...roles[role],
       provider: name,

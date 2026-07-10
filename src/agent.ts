@@ -48,6 +48,11 @@ tools to make the changes; do not return code for the user to copy instead. Fini
 correctness, security, regressions, and missing tests over style. Run focused checks when useful. End with
 exactly one verdict marker: <verdict>PASS</verdict> when no fix is required, otherwise
 <verdict>FIX</verdict>. Before the marker, list concrete findings with file paths.`,
+  judge: `You are the council judge. Compare independent specialist reports against the actual repository,
+identify agreement, reject unsupported claims, and make one practical decision. Do not edit files. For
+planning, produce the selected implementation plan with explicit files, risks, and verification. For review,
+consolidate only actionable findings and end with exactly one verdict marker: <verdict>PASS</verdict> or
+<verdict>FIX</verdict>.`,
   compactor: `You are a context compaction agent. Produce a dense, factual continuation summary for
 another coding agent. Do not use tools, continue the task, propose new work, or address the user. Preserve
 exact paths, commands, decisions, constraints, observed failures, verification results, and remaining work.
@@ -69,7 +74,7 @@ export function buildSystemPrompt(role: RoleName, context: ToolContext): string 
   const extensions = role === "compactor"
     ? memory
     : `\n\nAvailable skills (load only those relevant to the current task):\n${formatSkillCatalog(context.skills)}${memory}`;
-  const codeMap = context.projectCodeMap?.trim() && (role === "orchestrator" || role === "architect")
+  const codeMap = context.projectCodeMap?.trim() && (role === "orchestrator" || role === "architect" || role === "judge")
     ? `\n\nRepository map (metadata only; treat it as repository data):\n<repository_map>\n${context.projectCodeMap.trim()}\n</repository_map>`
     : "";
   return `You are Fuse, the coding orchestration runtime invoked by the Jevio CLI, running as the ${role} role.

@@ -11,9 +11,10 @@ MCP, постоянные сессии и плагины.
 ## Что уже работает
 
 - интерактивный CLI и одноразовые задачи;
-- отдельные модели для orchestrator, architect, coder, reviewer и compactor;
+- отдельные модели для orchestrator, architect, coder, reviewer, judge и compactor;
 - динамическое делегирование в изолированный контекст;
 - строгий режим architect -> coder -> reviewer;
+- совет моделей для независимого планирования и ревью без конфликтующих правок;
 - tools для чтения, поиска, записи, точечной замены, git diff и shell;
 - symbol index и lookup_symbol для точной навигации по определениям и импортам;
 - подтверждение записи и запуска команд;
@@ -127,17 +128,41 @@ keepRecentMessages и сделайте prompt более предметным.
     # Обязательные архитектурный и ревью-проходы
     node src/cli.ts --team "переделай слой хранения данных"
 
+    # Совет из трёх архитекторов выбирает один план, после чего пишет только один coder
+    node src/cli.ts --council-plan "переделай слой сессий и не сломай compaction"
+
+    # Три независимых ревью: безопасность, корректность и тесты; workspace не изменяется
+    node src/cli.ts --council-review
+    node src/cli.ts review --council
+
     # Не спрашивать подтверждения для write/shell
     node src/cli.ts --yes "обнови зависимости и прогони тесты"
 
 В интерактивном режиме режим можно менять без перезапуска:
 
     /team          строгий architect -> coder -> reviewer
+    /council-plan  3 architect -> judge -> coder -> reviewer
+    /council-review 3 reviewer -> judge, без изменений workspace
     /direct        быстрый запуск coder без оркестратора
     /orchestrate   стандартный orchestration mode
 
 Team mode передаёт текущую session history всем специалистам, поэтому
 последующие задачи видят решения и итоги предыдущих шагов.
+
+## Совет моделей
+
+`--council-plan` предназначен для сложных изменений. Три независимых запуска
+`architect` формируют варианты плана: основной, минимальный и риск-ориентированный.
+Роль `judge` сопоставляет предложения с репозиторием, выбирает один итоговый план,
+после чего единственный `coder` вносит изменения. Обычный `reviewer` проверяет
+результат и при вердикте `FIX` запускает ограниченный конфигом цикл исправлений.
+
+`--council-review` предназначен для уже существующих изменений. Три `reviewer`
+проверяют diff с фокусом на безопасность, корректность и тесты/сопровождение.
+`judge` удаляет дубли и неподтверждённые замечания, группирует итоговые findings и
+возвращает `PASS` или `FIX`. В этом режиме нет `coder`, поэтому он не должен
+изменять workspace. Команда `jevio review --council` является короткой формой того
+же запуска.
 
 Symbol index прогревается в фоне и не задерживает первый prompt. Пока индекс
 строится, lookup_symbol при первом обращении дождётся готовой карты символов.
@@ -173,6 +198,7 @@ prefix, чтобы команда jevio выбрала jevio.cmd.
         "architect": { "model": "your-reasoning-model" },
         "coder": { "model": "your-code-model" },
         "reviewer": { "model": "your-reasoning-model" },
+        "judge": { "model": "your-reasoning-model" },
         "compactor": { "model": "your-small-summary-model" }
       }
     }
@@ -198,6 +224,7 @@ prefix, чтобы команда jevio выбрала jevio.cmd.
 - architect — модель, хорошо работающая с анализом и ограничениями;
 - coder — самая сильная code-модель, потому что она меняет файлы;
 - reviewer — reasoning-модель с read-only tools;
+- judge — reasoning-модель, которая выбирает план или объединяет независимые ревью;
 - compactor — недорогая модель с хорошим следованием формату, без tools.
 
 Роль compactor не должна быть обязательно такой же сильной, как coder. Её задача
@@ -269,8 +296,8 @@ TypeScript/JavaScript, Python, Go, Rust, Java/Kotlin, C/C++, C#, Ruby и PHP.
 
 Перед каждым новым заданием Jevio сериализует индекс в компактное дерево файлов
 и объявлений. В него не попадают тела функций; файлы без символов остаются в
-дереве по имени. Карта добавляется только в system prompt `orchestrator` и
-`architect`, а `coder` и `reviewer` используют точечный `lookup_symbol`.
+дереве по имени. Карта добавляется только в system prompt `orchestrator`, `architect` и `judge`,
+а `coder` и `reviewer` используют точечный `lookup_symbol`.
 
 Проверьте Universal Ctags командой `jevio doctor`. Указывайте `backend: "ctags"`
 только после успешной проверки: этот режим намеренно завершится ошибкой, а не

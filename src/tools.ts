@@ -309,6 +309,8 @@ export function toolsForRole(role: RoleName): ToolDefinition[] {
     ? [...readTools, "delegate_agent"]
     : role === "architect"
     ? readTools
+    : role === "judge"
+      ? readTools
     : role === "reviewer"
       ? [...readTools, "run_command"]
       : [...readTools, "write_file", "replace_in_file", "run_command"];

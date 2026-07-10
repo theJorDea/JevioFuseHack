@@ -15,6 +15,8 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { name: "compact", description: "Сжать текущий контекст", argumentHint: "[статус|инструкция]" },
   { name: "provider", description: "Выбрать провайдера модели", argumentHint: "[имя]" },
   { name: "team", description: "Использовать architect, coder и reviewer" },
+  { name: "council-plan", description: "Запустить совет архитекторов для сложной задачи" },
+  { name: "council-review", description: "Запустить совет ревьюеров текущих изменений" },
   { name: "direct", description: "Работать напрямую через coder" },
   { name: "orchestrate", description: "Вернуться в режим оркестрации" },
   { name: "memory", description: "Просмотреть или изменить память проекта", argumentHint: "[add|clear]" },
