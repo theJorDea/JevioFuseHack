@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSystemPrompt, parseFallbackToolCalls } from "../src/agent.ts";
+import { buildSystemPrompt, parseFallbackToolCalls, runAgent } from "../src/agent.ts";
+import { DEFAULT_CONFIG } from "../src/config.ts";
 import type { ToolContext } from "../src/types.ts";
 
 const context: ToolContext = {
@@ -41,4 +42,38 @@ test("local-model JSON fallback is normalized into guarded tool calls", () => {
     arguments: "{\"path\":\"index.html\",\"content\":\"<h1>Fuse</h1>\"}",
   }]);
   assert.deepEqual(parseFallbackToolCalls("ordinary response", new Set(["write_file"])), []);
+});
+
+test("text tool mode omits native tools and executes the fallback protocol", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const requestBodies: Array<Record<string, unknown>> = [];
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    calls += 1;
+    const content = calls === 1
+      ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Пишу файлы" } }] })
+      : "Готово";
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }), {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.providers.lmstudio = { baseUrl: "http://localhost:1234/v1", toolMode: "text" };
+  config.defaultProvider = "lmstudio";
+  config.roles.coder = { provider: "lmstudio", model: "local-coder" };
+  let progress = "";
+  const result = await runAgent({
+    role: "coder",
+    task: "Создай сайт",
+    config,
+    toolContext: { ...context, reportProgress: (message) => { progress = message; } },
+  });
+
+  assert.equal(result.content, "Готово");
+  assert.equal(progress, "Пишу файлы");
+  assert.equal(requestBodies.length, 2);
+  assert.equal(requestBodies[0].tools, undefined);
+  assert.match(JSON.stringify(requestBodies[0].messages), /jevio_tool_calls/);
 });

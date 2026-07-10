@@ -31,6 +31,7 @@ export interface TuiProvider {
   apiKeyEnv?: string;
   defaultModel?: string;
   transport?: "chat_completions" | "responses";
+  toolMode?: "auto" | "native" | "text";
 }
 
 export interface InteractiveTuiOptions {
@@ -43,7 +44,7 @@ export interface InteractiveTuiOptions {
   getProvider(): string;
   listProviders(): Promise<TuiProvider[]>;
   selectProvider(name: string): Promise<string>;
-  addProvider(provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses" }): Promise<string>;
+  addProvider(provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses"; toolMode?: "auto" | "native" | "text" }): Promise<string>;
   listRoleConfigs(): Promise<Array<{ role: string; provider: string; model: string }>>;
   configureRole(role: string, provider: string, model: string): Promise<string>;
   setupReport(): Promise<string>;
@@ -520,7 +521,7 @@ export class InteractiveTui {
       ...providers.map((provider) => ({
         value: provider.name,
         label: provider.name === currentProvider ? `> ${provider.name}` : provider.name,
-        description: `${provider.baseUrl}${provider.apiKeyEnv ? `  ${provider.apiKeyEnv}` : ""}`,
+        description: `${provider.baseUrl}  tools:${provider.toolMode ?? "auto"}${provider.apiKeyEnv ? `  ${provider.apiKeyEnv}` : ""}`,
       })),
       ...(!providers.some((provider) => provider.name === "kimi")
         ? [{ value: "__preset_kimi__", label: "Kimi Code", description: "api.kimi.com/coding/v1  Kimi K2.7" }]
@@ -560,6 +561,7 @@ export class InteractiveTui {
       else if (item.value === "__preset_lmstudio__") this.showProviderForm({
         name: "lmstudio",
         baseUrl: "http://localhost:1234/v1",
+        toolMode: "text",
       });
       else if (item.value === "__preset_openrouter__") this.showProviderForm({
         name: "openrouter",
@@ -594,14 +596,15 @@ export class InteractiveTui {
     }
   }
 
-  private showProviderForm(preset: Partial<{ name: string; baseUrl: string; model: string; transport: "chat_completions" | "responses" }> = {}): void {
-    const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKey" | "model"; optional?: boolean; initial?: string }> = [
+  private showProviderForm(preset: Partial<{ name: string; baseUrl: string; model: string; transport: "chat_completions" | "responses"; toolMode: "auto" | "native" | "text" }> = {}): void {
+    const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKey" | "model" | "toolMode"; optional?: boolean; initial?: string }> = [
       { label: "Имя провайдера", key: "name", initial: preset.name },
       { label: "Базовый URL OpenAI-совместимого API", key: "baseUrl", initial: preset.baseUrl },
       { label: "API-ключ (хранится локально, не в Git)", key: "apiKey", optional: true },
       { label: "Название модели для ролей Fuse", key: "model", initial: preset.model },
+      { label: "Режим инструментов: auto, native или text", key: "toolMode", initial: preset.toolMode ?? "auto" },
     ];
-    const values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string }> = {};
+    const values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string; toolMode: "auto" | "native" | "text" }> = {};
     let index = 0;
     const overlay = modalSurface();
     const title = new Text();
@@ -636,7 +639,12 @@ export class InteractiveTui {
         this.setStatus("Используйте буквы, цифры, _ или - в имени провайдера", red);
         return;
       }
-      values[field.key] = value;
+      if (field.key === "toolMode" && !["auto", "native", "text"].includes(value)) {
+        this.setStatus("Выберите auto, native или text", red);
+        return;
+      }
+      if (field.key === "toolMode") values.toolMode = value as "auto" | "native" | "text";
+      else values[field.key] = value;
       index += 1;
       if (index < fields.length) {
         renderField();
@@ -651,11 +659,11 @@ export class InteractiveTui {
     renderField();
   }
 
-  private async saveProvider(values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string }>, transport?: "chat_completions" | "responses"): Promise<void> {
+  private async saveProvider(values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string; toolMode: "auto" | "native" | "text" }>, transport?: "chat_completions" | "responses"): Promise<void> {
     try {
       const name = values.name ?? "";
       const baseUrl = values.baseUrl ?? "";
-      const message = await this.options.addProvider({ name, baseUrl, apiKey: values.apiKey || undefined, model: values.model ?? "", transport });
+      const message = await this.options.addProvider({ name, baseUrl, apiKey: values.apiKey || undefined, model: values.model ?? "", transport, toolMode: values.toolMode });
       this.appendMessage("system", message);
       this.refreshHeader();
       this.setStatus("Готово", dim);

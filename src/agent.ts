@@ -146,6 +146,9 @@ export function pruneOldToolResults(messages: ChatMessage[], keepRecent: number)
 
 export async function runAgent(options: AgentOptions): Promise<AgentResult & { history: ChatMessage[] }> {
   const client = createClient(options.config, options.role);
+  const roleConfig = options.config.roles[options.role];
+  const providerName = roleConfig.provider ?? options.config.defaultProvider;
+  const toolMode = options.config.providers[providerName]?.toolMode ?? "auto";
   const previousHistory = options.history ?? [];
   const delegatedRoles = new Set<SpecialistRoleName>();
   const delegatedToolContext = options.role === "orchestrator" && options.toolContext.delegate
@@ -165,12 +168,19 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     },
   };
   const userMessage: ChatMessage = { role: "user", content: options.task };
+  const modelUserMessage: ChatMessage = toolMode === "text" && options.role === "coder"
+    ? {
+      role: "user",
+      content: `${options.task}\n\nThis provider uses Jevio's text tool protocol. To use a tool, return ONLY JSON without Markdown: {"jevio_tool_calls":[{"name":"write_file","arguments":{"path":"relative/path","content":"complete file content"}}]}. Return at most one tool call per response. After Jevio executes it, continue with the next tool call or a concise final summary.`,
+    }
+    : userMessage;
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(options.role, toolContext) },
     ...previousHistory,
-    userMessage,
+    modelUserMessage,
   ];
   const tools = toolsForRole(options.role);
+  const requestTools = toolMode === "text" ? [] : tools;
   const maxTurns = options.maxTurns ?? options.config.agent.maxTurns;
   let webSearchCalls = 0;
 
@@ -178,7 +188,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
     pruneOldToolResults(messages, options.config.agent.keepRecentToolResults);
     let receivedThinking = false;
-    const response = await client.complete({ messages, tools }, (delta) => {
+    const response = await client.complete({ messages, tools: requestTools }, (delta) => {
       if (delta.type !== "reasoning" || !delta.delta) return;
       receivedThinking = true;
       options.onEvent?.({ type: "thinking_delta", role: options.role, detail: delta.delta });

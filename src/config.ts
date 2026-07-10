@@ -107,9 +107,25 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
   } catch {
     throw new Error("memory.cognee.baseUrl must be an absolute http(s) URL.");
   }
+  for (const [name, provider] of Object.entries(input.providers ?? {})) {
+    if (provider.toolMode !== undefined && !["auto", "native", "text"].includes(provider.toolMode)) {
+      throw new Error(`Invalid toolMode for provider '${name}'.`);
+    }
+  }
+  const providers = Object.fromEntries(
+    Object.entries({ ...DEFAULT_CONFIG.providers, ...input.providers }).map(([name, provider]) => [
+      name,
+      {
+        ...provider,
+        ...(!provider.toolMode && (name.toLowerCase() === "lmstudio" || /^http:\/\/(?:localhost|127\.0\.0\.1):1234(?:\/|$)/i.test(provider.baseUrl))
+          ? { toolMode: "text" as const }
+          : {}),
+      },
+    ]),
+  ) as Record<string, ProviderConfig>;
   return {
     defaultProvider: input.defaultProvider ?? DEFAULT_CONFIG.defaultProvider,
-    providers: { ...DEFAULT_CONFIG.providers, ...input.providers } as Record<string, ProviderConfig>,
+    providers,
     roles,
     agent: { ...DEFAULT_CONFIG.agent, ...input.agent },
     compaction: { ...DEFAULT_CONFIG.compaction, ...input.compaction },
@@ -170,7 +186,7 @@ export async function saveProviderSecret(workspace: string, name: string, apiKey
 export async function addProviderConfig(
   workspace: string,
   explicitPath: string | undefined,
-  provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string; transport?: "chat_completions" | "responses" },
+  provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string; transport?: "chat_completions" | "responses"; toolMode?: "auto" | "native" | "text" },
 ): Promise<string> {
   const name = provider.name.trim();
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name)) throw new Error("Provider name must start with a letter and use only letters, numbers, _ or -.");
@@ -202,6 +218,7 @@ export async function addProviderConfig(
     baseUrl: baseUrl.toString().replace(/\/$/, ""),
     defaultModel: model,
     ...(provider.transport && provider.transport !== "chat_completions" ? { transport: provider.transport } : {}),
+    ...(provider.toolMode && provider.toolMode !== "auto" ? { toolMode: provider.toolMode } : {}),
     ...(apiKeyEnv ? { apiKeyEnv } : {}),
   };
   input.providers = providers;

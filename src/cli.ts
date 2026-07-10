@@ -287,6 +287,7 @@ async function setup(options: CliOptions): Promise<string | undefined> {
       name: provider.name,
       baseUrl: provider.baseUrl,
       model,
+      ...(provider.name === "lmstudio" ? { toolMode: "text" as const } : {}),
     });
     process.stdout.write(`\nГотово: ${file}\nПровайдер: ${provider.label}; модель: ${model}\n\nПроверка конфигурации:\n`);
     await doctor(options);
@@ -533,12 +534,13 @@ async function main(): Promise<void> {
     for (const role of Object.values(config.roles)) role.provider = name;
     return `Провайдер: ${name}. Применен ко всем ролям этой сессии; названия моделей ролей не изменены.`;
   };
-  const addProvider = async (provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses" }): Promise<string> => {
+  const addProvider = async (provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses"; toolMode?: "auto" | "native" | "text" }): Promise<string> => {
     const file = await addProviderConfig(options.workspace, options.configPath, provider);
     config.providers[provider.name] = {
       baseUrl: provider.baseUrl.replace(/\/$/, ""),
       defaultModel: provider.model,
       ...(provider.transport ? { transport: provider.transport } : {}),
+      ...(provider.toolMode ? { toolMode: provider.toolMode } : {}),
       ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
     };
     for (const role of Object.values(config.roles)) {
@@ -993,6 +995,7 @@ async function main(): Promise<void> {
           apiKeyEnv: provider.apiKeyEnv,
           defaultModel: provider.defaultModel,
           transport: provider.transport,
+          toolMode: provider.toolMode,
         })),
         selectProvider: async (name) => selectProvider(name),
         addProvider,

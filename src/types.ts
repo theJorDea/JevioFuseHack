@@ -5,6 +5,7 @@ export type ExecutionMode = "team" | "direct" | "orchestrate" | "council-plan" |
 export interface ProviderConfig {
   baseUrl: string;
   transport?: "chat_completions" | "responses";
+  toolMode?: "auto" | "native" | "text";
   defaultModel?: string;
   // apiKey takes precedence over apiKeyEnv when both are present.
   apiKey?: string;

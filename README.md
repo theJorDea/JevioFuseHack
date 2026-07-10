@@ -269,6 +269,26 @@ node src/cli.ts --council-review
 Council modes parallelize read-only reasoning. Only one coder receives write
 access, preventing conflicting edits.
 
+В `/provider` есть отдельный пресет LM Studio с endpoint `http://localhost:1234/v1`.
+Выберите фактически загруженную модель. Для LM Studio по умолчанию используется
+`toolMode: "text"`: Fuse не зависит от native function calling конкретного chat
+template и выполняет строгий `jevio_tool_calls` JSON через обычные подтверждения.
+Режим можно изменить в форме провайдера или конфиге:
+
+    {
+      "providers": {
+        "lmstudio": {
+          "baseUrl": "http://localhost:1234/v1",
+          "toolMode": "text"
+        }
+      }
+    }
+
+Доступные режимы: `auto` пробует native tools и принимает текстовый fallback,
+`native` передает OpenAI-compatible `tools`, `text` сразу использует переносимый
+текстовый протокол. Для моделей LM Studio без надежного function calling выбирайте
+`text`.
+
 ## Interactive commands
 
 ### Sessions

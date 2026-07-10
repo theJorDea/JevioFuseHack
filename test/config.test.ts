@@ -84,6 +84,18 @@ test("adds a provider without writing its API key", async (t) => {
   assert.deepEqual(saved.roles.coder, { provider: "cloud", model: "cloud-code-model" });
 });
 
+test("existing LM Studio providers default to the text tool protocol", async (t) => {
+  const workspace = path.join(process.cwd(), `.tmp-test-config-lmstudio-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    defaultProvider: "lmstudio",
+    providers: { lmstudio: { baseUrl: "http://localhost:1234/v1" } },
+  }));
+
+  assert.equal((await loadConfig(workspace)).providers.lmstudio.toolMode, "text");
+});
+
 test("loads a direct provider key from the ignored local secrets file", async (t) => {
   const workspace = path.join(tmpdir(), `.tmp-test-config-key-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));
