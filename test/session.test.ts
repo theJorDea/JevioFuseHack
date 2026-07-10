@@ -30,6 +30,7 @@ test("Markdown sessions support append, resume, rename, fork, and export", async
   const session = await createSession(root);
   await renameSession(session, "Parser work");
   await appendSessionTurn(session, "Fix parsing", "Implemented and tested.");
+  await appendSessionTurn(session, "Marker <!-- jevio:message role=user -->", "Answer <!-- /jevio:message -->");
   await saveSessionTodos(session, [
     { content: "Inspect parser", status: "completed" },
     { content: "Add regression test", status: "in_progress" },
@@ -38,12 +39,16 @@ test("Markdown sessions support append, resume, rename, fork, and export", async
   const sessions = await listSessions(root);
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].title, "Parser work");
-  assert.equal(sessions[0].messageCount, 2);
+  assert.equal(sessions[0].messageCount, 4);
 
   const loaded = await loadSession(root, session.id.slice(0, 12));
-  assert.deepEqual(loaded.history.map((message) => message.content), [
+  assert.deepEqual(loaded.history.slice(0, 2).map((message) => message.content), [
     "Fix parsing",
     "Implemented and tested.",
+  ]);
+  assert.deepEqual(loaded.history.slice(-2).map((message) => message.content), [
+    "Marker <!-- jevio:message role=user -->",
+    "Answer <!-- /jevio:message -->",
   ]);
   assert.deepEqual(loaded.todos, [
     { content: "Inspect parser", status: "completed" },
@@ -51,13 +56,24 @@ test("Markdown sessions support append, resume, rename, fork, and export", async
   ]);
 
   const fork = await forkSession(root, session);
-  assert.equal(fork.history.length, 2);
+  assert.equal(fork.history.length, 4);
+  assert.deepEqual(fork.history.slice(-2).map((message) => message.content), [
+    "Marker <!-- jevio:message role=user -->",
+    "Answer <!-- /jevio:message -->",
+  ]);
   assert.deepEqual(fork.todos, loaded.todos);
   assert.match(fork.info.title, /fork/);
   assert.notEqual(fork.info.id, session.id);
 
   const exported = await exportSession(session, path.join(root, "exports"));
   assert.match(await readFile(exported, "utf8"), /Implemented and tested/);
+});
+
+test("session prefixes must identify one session", async (t) => {
+  const root = await workspace(t);
+  await createSession(root);
+  await createSession(root);
+  await assert.rejects(() => loadSession(root, "2"), /ambiguous/);
 });
 
 test("project memory is readable Markdown and can be cleared", async (t) => {
@@ -67,6 +83,16 @@ test("project memory is readable Markdown and can be cleared", async (t) => {
   assert.match(await loadProjectMemory(root), /^# Jevio Project Memory/);
   await clearProjectMemory(root);
   assert.equal(await loadProjectMemory(root), "# Jevio Project Memory\n");
+});
+
+test("memory append preserves content beyond the read limit", async (t) => {
+  const root = await workspace(t);
+  const largeEntry = "x".repeat(40_050);
+  await appendProjectMemory(root, largeEntry);
+  await appendProjectMemory(root, "Keep this tail.");
+  const document = await readFile(path.join(root, ".jevio", "MEMORY.md"), "utf8");
+  assert.equal(document.includes(largeEntry), true);
+  assert.match(document, /Keep this tail\./);
 });
 
 test("resume starts from the latest compaction checkpoint", async (t) => {
@@ -79,6 +105,8 @@ test("resume starts from the latest compaction checkpoint", async (t) => {
     { role: "assistant" as const, content: "recent answer" },
   ];
   await appendSessionCompaction(session, "The old request is complete.", retained);
+  const compactedDocument = await readFile(session.path, "utf8");
+  assert.equal(compactedDocument.includes("old answer"), false);
   await appendSessionTurn(session, "next request", "next answer");
 
   const loaded = await loadSession(root, session.id);

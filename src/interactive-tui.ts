@@ -155,7 +155,7 @@ export class InteractiveTui {
     this.root.addChild(this.transcript);
     this.root.addChild(this.loader);
     this.root.addChild(this.status);
-    this.help.setText(dim("Enter send · Shift+Enter newline · Tab complete · Esc close · Ctrl+C exit · Ctrl+K commands"));
+    this.help.setText(dim("Enter send · Tab complete · Ctrl+K commands · Esc close · Ctrl+C exit"));
     this.root.addChild(this.help);
     this.root.addChild(this.editor);
     this.tui.addChild(this.root);
@@ -187,6 +187,7 @@ export class InteractiveTui {
 
   async run(): Promise<void> {
     this.refreshHeader();
+    if (this.options.getSession().messageCount === 0) this.showWelcome();
     this.setStatus("Ready", dim);
     this.tui.start();
     this.tui.requestRender(true);
@@ -207,32 +208,28 @@ export class InteractiveTui {
   }
 
   reportEvent(event: { type: "thinking" | "thinking_delta" | "thinking_done" | "tool" | "progress"; role: string; detail: string }): void {
-    if (event.type === "thinking_delta") {
-      this.loader.setMessage("Thinking...");
-      this.setStatus("Thinking...", dim);
-      this.appendThinking(event.role, event.detail);
-      return;
+    switch (event.type) {
+      case "thinking_delta":
+        this.loader.setMessage("Thinking...");
+        this.setStatus("Thinking...", dim);
+        this.appendThinking(event.role, event.detail);
+        return;
+      case "thinking_done":
+        this.finalizeThinking(event.role);
+        return;
+      case "tool":
+        this.loader.setMessage("Running tool...");
+        this.setStatus(`Running tool: ${event.detail}`, messageStyles.tool);
+        return;
+      case "progress":
+        this.loader.setMessage("Planning...");
+        this.setStatus(event.detail || "Planning...", green);
+        return;
+      case "thinking":
+        this.loader.setMessage("Thinking...");
+        this.setStatus(event.detail || "Thinking...", dim);
+        return;
     }
-    if (event.type === "thinking_done") {
-      this.finalizeThinking(event.role);
-      return;
-    }
-    const label = event.type === "tool"
-      ? `${event.role.toUpperCase()}  tool  ${event.detail}`
-      : event.type === "progress"
-        ? `${event.role.toUpperCase()}  plan  ${event.detail}`
-        : `${event.role.toUpperCase()}  ${event.detail}`;
-    const color = event.type === "tool" ? messageStyles.tool : event.type === "progress" ? green : dim;
-    const state = event.type === "tool"
-      ? "Running tool..."
-      : event.type === "progress"
-        ? "Planning..."
-        : event.type === "thinking"
-          ? "Thinking..."
-          : "Working...";
-    this.loader.setMessage(state);
-    this.appendActivity(label, color);
-    this.setStatus(state, color);
   }
 
   async confirm(message: string): Promise<boolean> {
@@ -328,6 +325,12 @@ export class InteractiveTui {
       await this.showCommandPalette();
       return;
     }
+    if (/^\/clear$/i.test(value)) {
+      this.transcript.clear();
+      this.setStatus("Transcript cleared", dim);
+      this.tui.requestRender();
+      return;
+    }
     if (/^\/(?:sessions?|resume|provider)(?:\s*)$/i.test(value)) {
       this.editor.addToHistory(input);
       this.editor.setText("");
@@ -335,7 +338,7 @@ export class InteractiveTui {
         if (/^\/provider\s*$/i.test(value)) await this.showProviderPicker();
         else await this.showSessionPicker();
       } catch (error) {
-        this.appendMessage("error", (error as Error).message);
+        this.appendMessage("error", getErrorMessage(error));
       }
       return;
     }
@@ -346,23 +349,23 @@ export class InteractiveTui {
     this.editor.setText("");
     if (!value.startsWith("/")) this.appendMessage("you", input);
     this.loader.setMessage(value.startsWith("/") ? "Applying command..." : "Thinking...");
-   this.loader.start();
-   this.setStatus("Working...", cyan);
+    this.loader.start();
+    this.setStatus("Working...", cyan);
     let failed = false;
-   try {
+    try {
       const result = await this.options.submit(input);
       if (result.output) this.appendMessage("fuse", result.output);
       this.refreshHeader();
       if (result.exit) this.stop();
       else if (!result.output) this.setStatus("Ready", dim);
-   } catch (error) {
+    } catch (error) {
       failed = true;
-     this.appendMessage("error", (error as Error).message);
+      this.appendMessage("error", getErrorMessage(error));
       this.setStatus("Task failed", red);
-   } finally {
-     this.loader.stop();
+    } finally {
+      this.loader.stop();
       if (!failed) this.setStatus("Ready", dim);
-     this.busy = false;
+      this.busy = false;
       this.editor.disableSubmit = false;
       this.tui.setFocus(this.editor);
       this.tui.requestRender();
@@ -410,22 +413,24 @@ export class InteractiveTui {
       this.refreshHeader();
       this.setStatus("Ready", dim);
     } catch (error) {
-      this.appendMessage("error", (error as Error).message);
+      this.appendMessage("error", getErrorMessage(error));
     } finally {
       this.loader.stop();
       this.busy = false;
       this.editor.disableSubmit = false;
       this.tui.setFocus(this.editor);
+      this.tui.requestRender();
     }
   }
 
   private async showProviderPicker(): Promise<void> {
     const providers = await this.options.listProviders();
+    const currentProvider = this.options.getProvider();
     const items: SelectItem[] = [
       ...providers.map((provider) => ({
-      value: provider.name,
-      label: provider.name,
-      description: `${provider.baseUrl}${provider.apiKeyEnv ? `  ${provider.apiKeyEnv}` : ""}`,
+        value: provider.name,
+        label: provider.name === currentProvider ? `> ${provider.name}` : provider.name,
+        description: `${provider.baseUrl}${provider.apiKeyEnv ? `  ${provider.apiKeyEnv}` : ""}`,
       })),
       ...(!providers.some((provider) => provider.name === "kimi")
         ? [{ value: "__preset_kimi__", label: "Kimi Code", description: "api.kimi.com/coding/v1  Kimi K2.7" }]
@@ -463,7 +468,7 @@ export class InteractiveTui {
       this.refreshHeader();
       this.setStatus("Ready", dim);
     } catch (error) {
-      this.appendMessage("error", (error as Error).message);
+      this.appendMessage("error", getErrorMessage(error));
     }
   }
 
@@ -497,6 +502,18 @@ export class InteractiveTui {
       const field = fields[index];
       const value = raw.trim();
       if (!value && !field.optional) return;
+      if (field.key === "baseUrl") {
+        try {
+          new URL(value);
+        } catch {
+          this.setStatus("Enter a valid base URL", red);
+          return;
+        }
+      }
+      if (field.key === "name" && !/^[a-zA-Z0-9_-]+$/.test(value)) {
+        this.setStatus("Use letters, numbers, _ or - for provider name", red);
+        return;
+      }
       values[field.key] = value;
       index += 1;
       if (index < fields.length) {
@@ -521,7 +538,7 @@ export class InteractiveTui {
       this.refreshHeader();
       this.setStatus("Ready", dim);
     } catch (error) {
-      this.appendMessage("error", (error as Error).message);
+      this.appendMessage("error", getErrorMessage(error));
     }
   }
 
@@ -533,9 +550,8 @@ export class InteractiveTui {
     this.tui.requestRender();
   }
 
-  private appendActivity(content: string, color: (text: string) => string): void {
-    this.transcript.addChild(new Text(color(`> ${content}`), 1, 0));
-    this.tui.requestRender();
+  private showWelcome(): void {
+    this.appendMessage("system", "Welcome to Fuse.\n\nPress Ctrl+K or type `/` to open commands. Use `/provider` to switch models or `/sessions` to resume previous work.");
   }
 
   private appendThinking(role: string, delta: string): void {
@@ -551,8 +567,11 @@ export class InteractiveTui {
     }
     this.liveThinking.text += delta;
     const limit = 6_000;
+    if (this.liveThinking.text.length > limit) {
+      this.liveThinking.text = this.liveThinking.text.slice(-limit);
+    }
     const visible = this.liveThinking.expanded
-      ? (this.liveThinking.text.length > limit ? `... ${this.liveThinking.text.slice(-limit)}` : this.liveThinking.text)
+      ? this.liveThinking.text
       : this.liveThinking.text.split("\n").slice(-12).join("\n");
     this.liveThinking.component.setText(dim(visible));
     this.tui.requestRender();
@@ -566,11 +585,10 @@ export class InteractiveTui {
 
   private toggleThinking(): void {
     if (!this.liveThinking) return;
-    this.liveThinking.expanded = !this.liveThinking.expanded;
-    this.liveThinking.heading.setText(dim(`${this.liveThinking.role.toUpperCase()} THINKING  (Ctrl+O to ${this.liveThinking.expanded ? "collapse" : "expand"})`));
-    const limit = 6_000;
-    const visible = this.liveThinking.expanded
-      ? (this.liveThinking.text.length > limit ? `... ${this.liveThinking.text.slice(-limit)}` : this.liveThinking.text)
+   this.liveThinking.expanded = !this.liveThinking.expanded;
+   this.liveThinking.heading.setText(dim(`${this.liveThinking.role.toUpperCase()} THINKING  (Ctrl+O to ${this.liveThinking.expanded ? "collapse" : "expand"})`));
+   const visible = this.liveThinking.expanded
+      ? this.liveThinking.text
       : this.liveThinking.text.split("\n").slice(-12).join("\n");
     this.liveThinking.component.setText(dim(visible));
     this.tui.requestRender();
@@ -632,4 +650,8 @@ function formatRelativeTime(value: string): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return "updated " + days + "d ago";
   return "updated " + value.slice(0, 10);
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

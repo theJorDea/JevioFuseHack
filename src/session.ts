@@ -23,11 +23,11 @@ export interface LoadedSession {
 }
 
 function sessionDirectory(workspace: string): string {
-  return path.join(workspace, ".jevio", "sessions");
+  return path.join(path.resolve(workspace), ".jevio", "sessions");
 }
 
 function memoryPath(workspace: string): string {
-  return path.join(workspace, ".jevio", "MEMORY.md");
+  return path.join(path.resolve(workspace), ".jevio", "MEMORY.md");
 }
 
 function makeId(): string {
@@ -42,7 +42,8 @@ function yamlString(value: string): string {
 function parseScalar(value: string | undefined): string {
   if (!value) return "";
   try {
-    return JSON.parse(value) as string;
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "string" ? parsed : String(parsed ?? "");
   } catch {
     return value.trim();
   }
@@ -57,8 +58,20 @@ function parseFrontmatter(document: string): Record<string, string> {
   }));
 }
 
+function escapeJevioMarkers(value: string): string {
+  return value
+    .replaceAll("<!-- jevio:", "&lt;!-- jevio:")
+    .replaceAll("<!-- /jevio:", "&lt;!-- /jevio:");
+}
+
+function unescapeJevioMarkers(value: string): string {
+  return value
+    .replaceAll("&lt;!-- /jevio:", "<!-- /jevio:")
+    .replaceAll("&lt;!-- jevio:", "<!-- jevio:");
+}
+
 function messageBlock(role: "user" | "assistant", content: string): string {
-  const safeContent = content.replaceAll("<!-- /jevio:message -->", "&lt;!-- /jevio:message --&gt;");
+  const safeContent = escapeJevioMarkers(content);
   const label = role === "user" ? "User" : "Assistant";
   return `\n<!-- jevio:message role=${role} -->\n## ${label}\n\n${safeContent.trimEnd()}\n<!-- /jevio:message -->\n`;
 }
@@ -67,18 +80,18 @@ function parseMessages(document: string): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const pattern = /<!-- jevio:message role=(user|assistant) -->\r?\n## (?:User|Assistant)\r?\n\r?\n([\s\S]*?)\r?\n<!-- \/jevio:message -->/g;
   for (const match of document.matchAll(pattern)) {
-    messages.push({ role: match[1] as "user" | "assistant", content: match[2] });
+    messages.push({ role: match[1] as "user" | "assistant", content: unescapeJevioMarkers(match[2]) });
   }
   return messages;
 }
 
 function compactionBlock(summary: string): string {
-  const safeSummary = summary.replaceAll("<!-- /jevio:compaction -->", "&lt;!-- /jevio:compaction --&gt;");
+  const safeSummary = escapeJevioMarkers(summary);
   return `\n<!-- jevio:compaction -->\n## Compacted Context\n\n${safeSummary.trimEnd()}\n<!-- /jevio:compaction -->\n`;
 }
 
 function todoBlock(items: TodoItem[]): string {
-  const serialized = JSON.stringify(items).replaceAll("<!-- /jevio:todo -->", "&lt;!-- /jevio:todo --&gt;");
+  const serialized = escapeJevioMarkers(JSON.stringify(items));
   return `\n<!-- jevio:todo -->\n${serialized}\n<!-- /jevio:todo -->\n`;
 }
 
@@ -88,7 +101,7 @@ function parseLatestTodos(document: string): TodoItem[] {
   for (let match = pattern.exec(document); match; match = pattern.exec(document)) latest = match;
   if (!latest) return [];
   try {
-    const value = JSON.parse(latest[1]) as unknown;
+    const value = JSON.parse(unescapeJevioMarkers(latest[1])) as unknown;
     if (!Array.isArray(value)) return [];
     return value.filter((item): item is TodoItem => Boolean(
       item && typeof item === "object"
@@ -107,7 +120,7 @@ function parseEffectiveMessages(document: string): ChatMessage[] {
   if (!latest || latest.index === undefined) return parseMessages(document);
   const afterCheckpoint = document.slice(latest.index + latest[0].length);
   return [
-    { role: "user", content: `Compacted context from the earlier conversation:\n\n${latest[1]}` },
+    { role: "user", content: `Compacted context from the earlier conversation:\n\n${unescapeJevioMarkers(latest[1])}` },
     { role: "assistant", content: "Understood. I will continue from this compacted context." },
     ...parseMessages(afterCheckpoint),
   ];
@@ -168,16 +181,41 @@ export async function appendSessionCompaction(
   summary: string,
   retainedMessages: ChatMessage[],
 ): Promise<void> {
-  const retained = retainedMessages.map((message) =>
-    messageBlock(message.role as "user" | "assistant", String(message.content ?? "")),
-  ).join("");
-  await appendFile(session.path, `${compactionBlock(summary)}${retained}`, "utf8");
-  session.messageCount += retainedMessages.length;
+  const document = await readFile(session.path, "utf8");
+  const metadata = parseFrontmatter(document);
+  const title = parseScalar(metadata.title) || session.title;
+  const createdAt = parseScalar(metadata.createdAt) || session.createdAt;
+  const todos = parseLatestTodos(document);
+  const retainedMessagesForSession = retainedMessages.filter((message): message is ChatMessage & { role: "user" | "assistant" } =>
+    message.role === "user" || message.role === "assistant",
+  );
+  const retained = retainedMessagesForSession
+    .map((message) => messageBlock(message.role, String(message.content ?? "")))
+    .join("");
+  const todoSnapshot = todos.length ? todoBlock(todos) : "";
+  const rewritten = `---
+id: ${yamlString(session.id)}
+title: ${yamlString(title)}
+createdAt: ${yamlString(createdAt)}
+format: jevio-session-v1
+---
+
+# ${title}
+${compactionBlock(summary)}${retained}${todoSnapshot}`;
+  await writeFile(session.path, rewritten, "utf8");
+  session.messageCount = retainedMessagesForSession.length;
   session.updatedAt = new Date().toISOString();
 }
 
 export async function saveSessionTodos(session: SessionInfo, items: TodoItem[]): Promise<void> {
   await appendFile(session.path, todoBlock(items), "utf8");
+  session.updatedAt = new Date().toISOString();
+}
+
+async function appendSessionMessage(session: SessionInfo, message: ChatMessage): Promise<void> {
+  if (message.role !== "user" && message.role !== "assistant") return;
+  await appendFile(session.path, messageBlock(message.role, String(message.content ?? "")), "utf8");
+  session.messageCount += 1;
   session.updatedAt = new Date().toISOString();
 }
 
@@ -203,9 +241,11 @@ export async function listSessions(workspace: string): Promise<SessionInfo[]> {
 
 export async function loadSession(workspace: string, requested: string): Promise<LoadedSession> {
   const sessions = await listSessions(workspace);
-  const info = requested === "latest"
-    ? sessions[0]
-    : sessions.find((session) => session.id === requested || session.id.startsWith(requested));
+  const matches = sessions.filter((session) => session.id === requested || session.id.startsWith(requested));
+  if (requested !== "latest" && matches.length > 1) {
+    throw new Error(`Session '${requested}' is ambiguous. Use a longer id.`);
+  }
+  const info = requested === "latest" ? sessions[0] : matches[0];
   if (!info) throw new Error(`Session '${requested}' was not found in this workspace.`);
   const document = await readFile(info.path, "utf8");
   return { info, history: trimHistory(parseEffectiveMessages(document)), todos: parseLatestTodos(document) };
@@ -215,6 +255,7 @@ export async function renameSession(session: SessionInfo, title: string): Promis
   const normalized = title.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
   if (!normalized) throw new Error("Session title must not be empty.");
   const document = await readFile(session.path, "utf8");
+  if (!/^title:.*$/m.test(document)) throw new Error("Session frontmatter is missing title.");
   const updated = document.replace(/^title:.*$/m, `title: ${yamlString(normalized)}`).replace(/^# .*$/m, `# ${normalized}`);
   await writeFile(session.path, updated, "utf8");
   session.title = normalized;
@@ -225,12 +266,9 @@ export async function forkSession(workspace: string, source: SessionInfo): Promi
   const loaded = await loadSession(workspace, source.id);
   const effectiveHistory = loaded.history;
   const fork = await createSession(workspace, `${source.title} (fork)`);
-  for (let index = 0; index < effectiveHistory.length; index += 2) {
-    const user = effectiveHistory[index];
-    const assistant = effectiveHistory[index + 1];
-    if (user?.role === "user" && assistant?.role === "assistant") {
-      await appendSessionTurn(fork, String(user.content ?? ""), String(assistant.content ?? ""));
-    }
+  for (const message of effectiveHistory) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    await appendSessionMessage(fork, message);
   }
   if (loaded.todos.length) await saveSessionTodos(fork, loaded.todos);
   return { info: fork, history: effectiveHistory, todos: loaded.todos };
@@ -258,15 +296,24 @@ export async function loadProjectMemory(workspace: string): Promise<string> {
   }
 }
 
+async function readFullProjectMemory(workspace: string): Promise<string> {
+  try {
+    return await readFile(memoryPath(workspace), "utf8");
+  } catch {
+    return "";
+  }
+}
+
 export async function appendProjectMemory(workspace: string, content: string): Promise<string> {
   const normalized = content.trim();
   if (!normalized) throw new Error("Memory entry must not be empty.");
   const file = memoryPath(workspace);
   await mkdir(path.dirname(file), { recursive: true });
-  let existing = await loadProjectMemory(workspace);
-  if (!existing) existing = "# Jevio Project Memory\n";
+  const existing = await readFullProjectMemory(workspace);
+  if (!existing) await writeFile(file, "# Jevio Project Memory\n", "utf8");
+  const separator = existing && !existing.endsWith("\n\n") ? "\n" : "";
   const timestamp = new Date().toISOString();
-  await writeFile(file, `${existing.trimEnd()}\n\n## ${timestamp}\n\n${normalized}\n`, "utf8");
+  await appendFile(file, `${separator}## ${timestamp}\n\n${normalized}\n`, "utf8");
   return file;
 }
 
