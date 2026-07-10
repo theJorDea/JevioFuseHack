@@ -120,6 +120,7 @@ export class InteractiveTui {
   private resolveExit?: () => void;
   private stopped = false;
   private dismissOverlay?: () => void;
+  private liveThinking?: { role: string; text: string; component: Text };
 
   constructor(options: InteractiveTuiOptions) {
     this.options = options;
@@ -172,7 +173,15 @@ export class InteractiveTui {
     });
   }
 
-  reportEvent(event: { type: "thinking" | "tool" | "progress"; role: string; detail: string }): void {
+  reportEvent(event: { type: "thinking" | "thinking_delta" | "thinking_done" | "tool" | "progress"; role: string; detail: string }): void {
+    if (event.type === "thinking_delta") {
+      this.appendThinking(event.role, event.detail);
+      return;
+    }
+    if (event.type === "thinking_done") {
+      this.finalizeThinking(event.role);
+      return;
+    }
     const label = event.type === "tool"
       ? `${event.role.toUpperCase()}  tool  ${event.detail}`
       : event.type === "progress"
@@ -452,6 +461,31 @@ export class InteractiveTui {
 
   private appendActivity(content: string, color: (text: string) => string): void {
     this.transcript.addChild(new Text(color(`> ${content}`), 1, 0));
+    this.tui.requestRender();
+  }
+
+  private appendThinking(role: string, delta: string): void {
+    if (!delta) return;
+    if (!this.liveThinking || this.liveThinking.role !== role) {
+      this.finalizeThinking();
+      const component = new Text("", 1, 0);
+      this.transcript.addChild(new Text(dim(`${role.toUpperCase()} THINKING`), 1, 1));
+      this.transcript.addChild(component);
+      this.transcript.addChild(new Text(""));
+      this.liveThinking = { role, text: "", component };
+    }
+    this.liveThinking.text += delta;
+    const limit = 6_000;
+    const visible = this.liveThinking.text.length > limit
+      ? `... ${this.liveThinking.text.slice(-limit)}`
+      : this.liveThinking.text;
+    this.liveThinking.component.setText(dim(visible));
+    this.tui.requestRender();
+  }
+
+  private finalizeThinking(role?: string): void {
+    if (!this.liveThinking || (role && this.liveThinking.role !== role)) return;
+    this.liveThinking = undefined;
     this.tui.requestRender();
   }
 

@@ -75,6 +75,11 @@ export interface ModelResponse {
   rawMessage: ChatMessage;
 }
 
+export interface ModelDelta {
+  type: "reasoning" | "text";
+  delta: string;
+}
+
 export interface ModelRequest {
   messages: ChatMessage[];
   tools?: ToolDefinition[];
@@ -83,7 +88,7 @@ export interface ModelRequest {
 }
 
 export interface ModelClient {
-  complete(request: ModelRequest): Promise<ModelResponse>;
+  complete(request: ModelRequest, onDelta?: (delta: ModelDelta) => void): Promise<ModelResponse>;
 }
 
 export interface SkillMetadata {
@@ -116,4 +121,5 @@ export interface AskUserOption {
 export interface AgentResult {
   content: string;
   turns: number;
+  delegatedRoles?: Exclude<RoleName, "orchestrator" | "compactor">[];
 }

@@ -211,7 +211,7 @@ When Jevio runs in an interactive terminal, it uses a focused TUI rather than a 
 - use `Up` and `Down` to navigate command suggestions and saved-session picker entries;
 - `Shift+Enter` inserts a new prompt line; `Enter` submits it;
 - agent results render as Markdown, while the footer reports the current model role and tool activity;
-- model turns and tool calls remain in the transcript as an activity timeline; model-private reasoning is not exposed;
+- model turns and tool calls remain in the transcript as an activity timeline; providers that stream OpenAI-compatible `reasoning_content` (including Kimi) render a live thinking block;
 - models can emit short `report_progress` plan updates to the same timeline; these are user-facing summaries, not private reasoning traces;
 - when an implementation decision is materially ambiguous, Fuse can call `ask_user`, opening a keyboard-selectable picker with predefined choices and an `Other...` text answer.
 - `/sessions` and `/resume` open an in-place session picker, including the session title, short ID, and last update time.

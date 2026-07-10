@@ -21,7 +21,7 @@ export interface AgentOptions {
 }
 
 export interface AgentEvent {
-  type: "thinking" | "tool" | "progress";
+  type: "thinking" | "thinking_delta" | "thinking_done" | "tool" | "progress";
   role: RoleName;
   detail: string;
 }
@@ -31,15 +31,18 @@ const ROLE_INSTRUCTIONS: Record<RoleName, string> = {
 context to delegate well, and keep your own context lean. For simple questions, answer directly. For code
 changes, delegate a self-contained task to coder. Use architect only when design decisions are substantial,
 and reviewer when risk justifies another model call. Specialists have isolated context and only return their
-final report, so include necessary constraints in each task. Do not claim their work as complete until their
-report confirms verification. Subagents cannot delegate further.`,
+final report, so include necessary constraints in each task. For requests to create or change files, you must
+delegate to coder after any architecture pass; never return an architect report or code block as a substitute
+for workspace edits. Do not claim work is complete until the coder report confirms edits and verification.
+Subagents cannot delegate further.`,
   architect: `You are the architecture agent. Inspect the repository before drawing conclusions.
 Produce an implementation plan grounded in actual files and project conventions. Identify interfaces,
 data flow, risks, and verification. You have read-only tools and must not claim to have edited files.`,
   coder: `You are the implementation agent. Work autonomously until the task is complete.
 Inspect relevant files before editing. Make focused changes that fit existing conventions. Use skills when
 their descriptions match the task. Run proportionate tests or checks after editing. Never claim a command
-or edit succeeded unless its tool result confirms it. Finish with a concise summary and verification.`,
+or edit succeeded unless its tool result confirms it. For requests that create or modify artifacts, use write
+tools to make the changes; do not return code for the user to copy instead. Finish with a concise summary and verification.`,
   reviewer: `You are the review agent. Inspect the actual diff and relevant surrounding code. Prioritize
 correctness, security, regressions, and missing tests over style. Run focused checks when useful. End with
 exactly one verdict marker: <verdict>PASS</verdict> when no fix is required, otherwise
@@ -101,9 +104,19 @@ export function pruneOldToolResults(messages: ChatMessage[], keepRecent: number)
 export async function runAgent(options: AgentOptions): Promise<AgentResult & { history: ChatMessage[] }> {
   const client = createClient(options.config, options.role);
   const previousHistory = options.history ?? [];
+  const delegatedRoles = new Set<Exclude<RoleName, "orchestrator" | "compactor">>();
+  const toolContext = options.role === "orchestrator" && options.toolContext.delegate
+    ? {
+      ...options.toolContext,
+      delegate: async (role: Exclude<RoleName, "orchestrator">, task: string) => {
+        delegatedRoles.add(role);
+        return options.toolContext.delegate!(role, task);
+      },
+    }
+    : options.toolContext;
   const userMessage: ChatMessage = { role: "user", content: options.task };
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(options.role, options.toolContext) },
+    { role: "system", content: buildSystemPrompt(options.role, toolContext) },
     ...previousHistory,
     userMessage,
   ];
@@ -113,7 +126,13 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
     pruneOldToolResults(messages, options.config.agent.keepRecentToolResults);
-    const response = await client.complete({ messages, tools });
+    let receivedThinking = false;
+    const response = await client.complete({ messages, tools }, (delta) => {
+      if (delta.type !== "reasoning" || !delta.delta) return;
+      receivedThinking = true;
+      options.onEvent?.({ type: "thinking_delta", role: options.role, detail: delta.delta });
+    });
+    if (receivedThinking) options.onEvent?.({ type: "thinking_done", role: options.role, detail: "" });
     messages.push(response.rawMessage);
 
     if (!response.toolCalls.length) {
@@ -121,6 +140,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
       return {
         content,
         turns: turn,
+        ...(delegatedRoles.size ? { delegatedRoles: [...delegatedRoles] } : {}),
         history: [...previousHistory, userMessage, { role: "assistant", content }],
       };
     }
@@ -134,7 +154,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
         if (call.name === "report_progress" && typeof input.message === "string") {
           options.onEvent?.({ type: "progress", role: options.role, detail: input.message.trim().slice(0, 500) });
         }
-        output = await executeTool(call.name, input, options.toolContext);
+        output = await executeTool(call.name, input, toolContext);
       } catch (error) {
         output = `Tool error: ${(error as Error).message}`;
         failed = true;

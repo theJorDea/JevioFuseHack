@@ -88,6 +88,10 @@ const INTERACTIVE_HELP = `Session commands:
   /exit                        Exit
 `;
 
+function isImplementationRequest(task: string): boolean {
+  return /\b(create|build|implement|write|add|fix|modify|refactor|make)\b|созда[йть]|сдела[йть]|напиш[иать]|добав[ьить]|исправ[ьить]|передела[йть]|сайт|страниц/i.test(task);
+}
+
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     command: "run",
@@ -428,6 +432,20 @@ async function main(): Promise<void> {
     }
     const role = mode === "direct" ? "coder" : "orchestrator";
     const result = await runAgent({ role, task, config, toolContext: context, history, onEvent: reportEvent });
+    if (role === "orchestrator" && isImplementationRequest(task) && !result.delegatedRoles?.includes("coder")) {
+      reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because no write-capable agent was delegated." });
+      const coder = await runAgent({
+        role: "coder",
+        task: `${task}\n\nThe orchestrator returned this context, but no coder was delegated. Implement the request in the workspace now:\n${result.content}`,
+        config,
+        toolContext: context,
+        history,
+        onEvent: reportEvent,
+      });
+      history = coder.history;
+      await appendSessionTurn(active.info, task, coder.content);
+      return coder.content;
+    }
     history = result.history;
     await appendSessionTurn(active.info, task, result.content);
     return result.content;
