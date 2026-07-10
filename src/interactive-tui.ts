@@ -67,15 +67,15 @@ class FuseAutocompleteProvider implements AutocompleteProvider {
   }
 }
 
-const style = (code: number) => (text: string): string => `\x1b[${code}m${text}\x1b[0m`;
-const boldCyan = (text: string): string => `\x1b[1;36m${text}\x1b[0m`;
+const style = (code: number) => (text: string): string => `\x1b[${code}m${text}\x1b[39m`;
+const boldCyan = (text: string): string => `\x1b[1;36m${text}\x1b[22;39m`;
 const dim = style(2);
 const cyan = style(36);
 const green = style(32);
 const yellow = style(33);
 const red = style(31);
 const white = style(37);
-const modalBackground = (text: string): string => `\x1b[48;5;236m${text}\x1b[0m`;
+const modalBackground = (text: string): string => `\x1b[48;5;236m${text}\x1b[49m`;
 
 const messageStyles = {
   you: cyan,
@@ -109,10 +109,10 @@ const markdownTheme: MarkdownTheme = {
   quoteBorder: cyan,
   hr: dim,
   listBullet: cyan,
-  bold: (text) => `\x1b[1m${text}\x1b[0m`,
-  italic: (text) => `\x1b[3m${text}\x1b[0m`,
+  bold: (text) => `\x1b[1m${text}\x1b[22;39m`,
+  italic: (text) => `\x1b[3m${text}\x1b[23;39m`,
   strikethrough: dim,
-  underline: (text) => `\x1b[4m${text}\x1b[0m`,
+  underline: (text) => `\x1b[4m${text}\x1b[24;39m`,
   codeBlockIndent: "  ",
 };
 
@@ -364,6 +364,7 @@ export class InteractiveTui {
       this.setStatus("Задача завершилась с ошибкой", red);
     } finally {
       this.loader.stop();
+      this.loader.setMessage("");
       if (!failed) this.setStatus("Готово", dim);
       this.busy = false;
       this.editor.disableSubmit = false;
@@ -416,6 +417,7 @@ export class InteractiveTui {
       this.appendMessage("error", getErrorMessage(error));
     } finally {
       this.loader.stop();
+      this.loader.setMessage("");
       this.busy = false;
       this.editor.disableSubmit = false;
       this.tui.setFocus(this.editor);
