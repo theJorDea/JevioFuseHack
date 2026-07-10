@@ -8,6 +8,37 @@ export interface TeamOptions {
   history?: ChatMessage[];
   onEvent?: (event: AgentEvent) => void;
   runner?: typeof runAgent;
+  approvePlan?: (plan: string) => Promise<{ decision: "approve" | "reject" | "revise"; feedback?: string }>;
+}
+
+async function approvePlan(
+  options: TeamOptions,
+  runner: typeof runAgent,
+  role: "architect" | "judge",
+  initialPlan: string,
+): Promise<{ plan: string; turns: number }> {
+  if (!options.approvePlan) return { plan: initialPlan, turns: 0 };
+  let plan = initialPlan;
+  let turns = 0;
+  for (let revision = 0; revision < 3; revision += 1) {
+    const approval = await options.approvePlan(plan);
+    if (approval.decision === "approve") return { plan, turns };
+    if (approval.decision === "reject") throw new Error("План отклонен пользователем. Файлы не изменены.");
+    const feedback = approval.feedback?.trim();
+    if (!feedback) throw new Error("Для переработки плана нужен комментарий пользователя.");
+    const revised = await runner({
+      role,
+      task: `Revise the implementation plan using the user's feedback. Keep valid constraints, inspect the repository when needed, and return only the complete updated plan.\n\nCURRENT PLAN:\n${plan}\n\nUSER FEEDBACK:\n${feedback}`,
+      config: options.config,
+      toolContext: options.toolContext,
+      history: options.history,
+      maxTurns: Math.min(10, options.config.agent.maxTurns),
+      onEvent: options.onEvent,
+    });
+    plan = revised.content;
+    turns += revised.turns;
+  }
+  throw new Error("План не был одобрен после трех итераций.");
 }
 
 export interface TeamResult extends AgentResult {
@@ -116,9 +147,10 @@ export async function runTeam(options: TeamOptions): Promise<TeamResult> {
     maxTurns: Math.min(10, options.config.agent.maxTurns),
     onEvent: options.onEvent,
   });
+  const approved = await approvePlan(options, runner, "architect", planResult.content);
   const implementation = await runner({
     role: "coder",
-    task: `Implement the user's request. The architecture agent produced this advisory plan; verify it against the repository and adjust it when necessary.\n\nUSER REQUEST:\n${options.task}\n\nPLAN:\n${planResult.content}`,
+    task: `Implement the user's request. The architecture agent produced this approved plan; verify it against the repository and adjust it only when necessary.\n\nUSER REQUEST:\n${options.task}\n\nAPPROVED PLAN:\n${approved.plan}`,
     config: options.config,
     toolContext: options.toolContext,
     history: options.history,
@@ -128,8 +160,8 @@ export async function runTeam(options: TeamOptions): Promise<TeamResult> {
 
   return {
     content: reviewed.implementation.content,
-    turns: planResult.turns + implementation.turns + reviewed.turns,
-    plan: planResult.content,
+    turns: planResult.turns + approved.turns + implementation.turns + reviewed.turns,
+    plan: approved.plan,
     review: reviewed.review,
     fixesApplied: reviewed.fixesApplied,
   };
@@ -160,9 +192,10 @@ export async function runCouncilPlan(options: TeamOptions): Promise<CouncilPlanR
     maxTurns: Math.min(10, options.config.agent.maxTurns),
     onEvent: options.onEvent,
   });
+  const approved = await approvePlan(options, runner, "judge", judgeResult.content);
   const implementation = await runner({
     role: "coder",
-    task: `Implement the user's request using the selected council plan. Verify the plan against the repository, make focused edits, and run relevant checks.\n\nUSER REQUEST:\n${options.task}\n\nSELECTED PLAN:\n${judgeResult.content}`,
+    task: `Implement the user's request using the approved council plan. Verify the plan against the repository, make focused edits, and run relevant checks.\n\nUSER REQUEST:\n${options.task}\n\nAPPROVED PLAN:\n${approved.plan}`,
     config: options.config,
     toolContext: options.toolContext,
     history: options.history,
@@ -172,12 +205,12 @@ export async function runCouncilPlan(options: TeamOptions): Promise<CouncilPlanR
 
   return {
     content: reviewed.implementation.content,
-    turns: architectResults.reduce((total, result) => total + result.turns, 0) + judgeResult.turns + implementation.turns + reviewed.turns,
-    plan: judgeResult.content,
+    turns: architectResults.reduce((total, result) => total + result.turns, 0) + judgeResult.turns + approved.turns + implementation.turns + reviewed.turns,
+    plan: approved.plan,
     review: reviewed.review,
     fixesApplied: reviewed.fixesApplied,
     architectPlans,
-    judgment: judgeResult.content,
+    judgment: approved.plan,
   };
 }
 

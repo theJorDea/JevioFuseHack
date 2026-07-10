@@ -15,6 +15,7 @@ import {
 } from "./compaction.ts";
 import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "./config.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
+import { createPlanDocument, writePlanDocument, type PlanDocument } from "./plan.ts";
 import {
   appendProjectMemory,
   appendSessionCouncil,
@@ -569,6 +570,32 @@ async function main(): Promise<void> {
     return `Context compacted: ~${beforeTokens} -> ~${estimateHistoryTokens(history)} tokens; ${compacted.retainedMessages.length} recent messages retained.`;
   };
   const executeTask = async (task: string): Promise<string> => {
+    let planDocument: PlanDocument | undefined;
+    const approvePlan = async (plan: string): Promise<{ decision: "approve" | "reject" | "revise"; feedback?: string }> => {
+      planDocument ??= await createPlanDocument(options.workspace, active.info.id);
+      await writePlanDocument(planDocument, plan, "pending");
+      if (options.yes) {
+        await writePlanDocument(planDocument, plan, "approved");
+        return { decision: "approve" };
+      }
+      let decision: { decision: "approve" | "reject" | "revise"; feedback?: string };
+      if (tui) {
+        decision = await tui.reviewPlan(plan, planDocument.path);
+      } else if (terminal) {
+        process.stdout.write(`\nПлан реализации\n\n${plan}\n\nФайл: ${planDocument.path}\n`);
+        const answer = (await terminal.question("Одобрить план? [y] да / [n] нет / [o] предложить изменения: ")).trim().toLowerCase();
+        if (/^(y|yes|д|да)$/.test(answer)) decision = { decision: "approve" };
+        else if (/^(o|other|другое)$/.test(answer)) {
+          const feedback = (await terminal.question("Что изменить в плане? ")).trim();
+          decision = feedback ? { decision: "revise", feedback } : { decision: "reject" };
+        } else decision = { decision: "reject" };
+      } else {
+        throw new Error("План требует интерактивного согласования. Для CI используйте --yes.");
+      }
+      if (decision.feedback) planDocument.feedback.push(decision.feedback);
+      await writePlanDocument(planDocument, plan, decision.decision === "approve" ? "approved" : decision.decision === "reject" ? "rejected" : "pending");
+      return decision;
+    };
     try {
       context.projectCodeMap = await buildRepositoryMap(options.workspace, config.codeIndex);
     } catch (error) {
@@ -597,6 +624,7 @@ async function main(): Promise<void> {
         toolContext: context,
         history,
         onEvent: reportEvent,
+        approvePlan,
       });
       if (isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
         throw new Error("Council coder finished without modifying the workspace.");
@@ -636,6 +664,7 @@ async function main(): Promise<void> {
         toolContext: context,
         history,
         onEvent: reportEvent,
+        approvePlan,
       });
       if (isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
         throw new Error("Team coder finished without modifying the workspace.");

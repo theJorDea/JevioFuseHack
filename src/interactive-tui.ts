@@ -318,6 +318,63 @@ export class InteractiveTui {
     });
   }
 
+  async reviewPlan(plan: string, planPath: string): Promise<{ decision: "approve" | "reject" | "revise"; feedback?: string }> {
+    this.appendMessage("system", `## План реализации\n\n${plan}\n\nФайл плана: ${planPath}`);
+    return new Promise((resolve) => {
+      this.loader.setMessage("Жду согласования плана...");
+      this.setStatus("План ожидает согласования", yellow);
+      const overlay = modalSurface();
+      overlay.addChild(new Text(boldCyan("СОГЛАСОВАНИЕ ПЛАНА\n"), 1, 1));
+      const choices = new SelectList([
+        { value: "approve", label: "Одобрить", description: "Запустить coder по этому плану" },
+        { value: "reject", label: "Отклонить", description: "Остановить задачу без изменений" },
+        { value: "revise", label: "Другое...", description: "Предложить изменения к плану" },
+      ], 3, selectTheme);
+      overlay.addChild(choices);
+      const close = (answer: { decision: "approve" | "reject" | "revise"; feedback?: string }) => {
+        handle.hide();
+        this.dismissOverlay = undefined;
+        this.tui.setFocus(this.editor);
+        this.loader.setMessage("Размышляю...");
+        this.setStatus("Работаю...", cyan);
+        resolve(answer);
+      };
+      choices.onSelect = (choice) => {
+        if (choice.value === "revise") {
+          handle.hide();
+          this.dismissOverlay = undefined;
+          this.showPlanFeedbackInput(resolve);
+        } else {
+          close({ decision: choice.value as "approve" | "reject" });
+        }
+      };
+      choices.onCancel = () => close({ decision: "reject" });
+      const handle = this.tui.showOverlay(overlay, { width: "72%", minWidth: 54, maxHeight: 10, anchor: "center", margin: 2 });
+      this.dismissOverlay = () => close({ decision: "reject" });
+      this.tui.setFocus(choices);
+    });
+  }
+
+  private showPlanFeedbackInput(resolve: (answer: { decision: "approve" | "reject" | "revise"; feedback?: string }) => void): void {
+    const overlay = modalSurface();
+    overlay.addChild(new Text(boldCyan("ПРЕДЛОЖЕНИЯ К ПЛАНУ\n"), 1, 1));
+    const input = new Input();
+    overlay.addChild(input);
+    const close = (feedback?: string) => {
+      handle.hide();
+      this.dismissOverlay = undefined;
+      this.tui.setFocus(this.editor);
+      this.loader.setMessage("Размышляю...");
+      this.setStatus("Работаю...", cyan);
+      resolve(feedback ? { decision: "revise", feedback } : { decision: "reject" });
+    };
+    input.onSubmit = (value) => close(value.trim() || undefined);
+    input.onEscape = () => close();
+    const handle = this.tui.showOverlay(overlay, { width: "76%", minWidth: 56, maxHeight: 8, anchor: "center", margin: 2 });
+    this.dismissOverlay = () => close();
+    this.tui.setFocus(input);
+  }
+
   private showQuestionInput(question: string, resolve: (answer: string) => void): void {
     const overlay = modalSurface();
     overlay.addChild(new Text(boldCyan(`ТРЕБУЕТСЯ ВАШ ОТВЕТ\n${question}\n`), 1, 1));

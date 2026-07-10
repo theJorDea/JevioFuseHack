@@ -38,6 +38,38 @@ test("team mode forwards session history to every specialist", async () => {
   for (const call of calls) assert.strictEqual(call.history, history);
 });
 
+test("team waits for plan revision and approval before coder", async () => {
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+  };
+  const calls: string[] = [];
+  let approvals = 0;
+  const result = await runTeam({
+    task: "Implement feature",
+    config: structuredClone(DEFAULT_CONFIG),
+    toolContext: context,
+    approvePlan: async () => (++approvals === 1
+      ? { decision: "revise", feedback: "Add a regression test" }
+      : { decision: "approve" }),
+    runner: async (options) => {
+      calls.push(options.role);
+      const content = options.role === "reviewer"
+        ? "<verdict>PASS</verdict>"
+        : options.task.startsWith("Revise")
+          ? "Revised plan with regression test"
+          : `${options.role} result`;
+      return { content, turns: 1, history: [] };
+    },
+  });
+  assert.deepEqual(calls, ["architect", "architect", "coder", "reviewer"]);
+  assert.equal(result.plan, "Revised plan with regression test");
+  assert.equal(approvals, 2);
+});
+
 test("council plan selects a plan before one coder changes the workspace", async () => {
   const calls: string[] = [];
   const context: ToolContext = {
