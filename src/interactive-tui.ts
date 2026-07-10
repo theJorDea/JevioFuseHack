@@ -136,7 +136,7 @@ export class InteractiveTui {
   constructor(options: InteractiveTuiOptions) {
     this.options = options;
     this.tui = new TUI(new ProcessTerminal());
-    this.loader = new Loader(this.tui, cyan, dim, "Готово", { frames: ["-", "\\", "|", "/"], intervalMs: 120 });
+    this.loader = new Loader(this.tui, cyan, dim, "", { frames: [] });
     this.editor = new Editor(this.tui, { borderColor: cyan, selectList: selectTheme }, { paddingX: 1, autocompleteMaxVisible: 8 });
     const autocomplete = new CombinedAutocompleteProvider(
       SLASH_COMMANDS.map((command) => ({
@@ -348,8 +348,9 @@ export class InteractiveTui {
     this.editor.addToHistory(input);
     this.editor.setText("");
     if (!value.startsWith("/")) this.appendMessage("you", input);
-    this.loader.setMessage(value.startsWith("/") ? "Выполняю команду..." : "Размышляю...");
-    this.loader.start();
+   this.loader.setMessage(value.startsWith("/") ? "Выполняю команду..." : "Размышляю...");
+    this.loader.setIndicator({ frames: ["-", "\\", "|", "/"], intervalMs: 120 });
+   this.loader.start();
     this.setStatus("Работаю...", cyan);
     let failed = false;
     try {
@@ -362,9 +363,10 @@ export class InteractiveTui {
       failed = true;
       this.appendMessage("error", getErrorMessage(error));
       this.setStatus("Задача завершилась с ошибкой", red);
-    } finally {
-      this.loader.stop();
-      this.loader.setMessage("");
+   } finally {
+     this.loader.stop();
+      this.loader.setIndicator({ frames: [] });
+     this.loader.setMessage("");
       if (!failed) this.setStatus("Готово", dim);
       this.busy = false;
       this.editor.disableSubmit = false;
@@ -407,17 +409,19 @@ export class InteractiveTui {
   private async resumeFromPicker(id: string): Promise<void> {
     this.busy = true;
     this.editor.disableSubmit = true;
-    this.loader.setMessage("Загружаю сессию");
-    this.loader.start();
+   this.loader.setMessage("Загружаю сессию");
+    this.loader.setIndicator({ frames: ["-", "\\", "|", "/"], intervalMs: 120 });
+   this.loader.start();
     try {
       this.appendMessage("system", await this.options.resumeSession(id));
       this.refreshHeader();
       this.setStatus("Готово", dim);
     } catch (error) {
       this.appendMessage("error", getErrorMessage(error));
-    } finally {
-      this.loader.stop();
-      this.loader.setMessage("");
+   } finally {
+     this.loader.stop();
+      this.loader.setIndicator({ frames: [] });
+     this.loader.setMessage("");
       this.busy = false;
       this.editor.disableSubmit = false;
       this.tui.setFocus(this.editor);
