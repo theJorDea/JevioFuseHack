@@ -362,6 +362,9 @@ export class InteractiveTui {
       label: provider.name,
       description: `${provider.baseUrl}${provider.apiKeyEnv ? `  ${provider.apiKeyEnv}` : ""}`,
       })),
+      ...(!providers.some((provider) => provider.name === "kimi")
+        ? [{ value: "__preset_kimi__", label: "Kimi Code", description: "api.kimi.com/coding/v1  Kimi K2.7" }]
+        : []),
       { value: "__add_provider__", label: "Add provider", description: "Configure an OpenAI-compatible endpoint" },
     ];
     const list = new SelectList(items, 10, selectTheme);
@@ -377,7 +380,12 @@ export class InteractiveTui {
     this.dismissOverlay = close;
     list.onSelect = (item) => {
       close();
-      if (item.value === "__add_provider__") this.showProviderForm();
+      if (item.value === "__preset_kimi__") this.showProviderForm({
+        name: "kimi",
+        baseUrl: "https://api.kimi.com/coding/v1",
+        model: "Kimi K2.7",
+      });
+      else if (item.value === "__add_provider__") this.showProviderForm();
       else void this.chooseProvider(item.value);
     };
     list.onCancel = close;
@@ -394,12 +402,12 @@ export class InteractiveTui {
     }
   }
 
-  private showProviderForm(): void {
-    const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKey" | "model"; optional?: boolean }> = [
-      { label: "Provider name", key: "name" },
-      { label: "OpenAI-compatible base URL", key: "baseUrl" },
+  private showProviderForm(preset: Partial<{ name: string; baseUrl: string; model: string }> = {}): void {
+    const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKey" | "model"; optional?: boolean; initial?: string }> = [
+      { label: "Provider name", key: "name", initial: preset.name },
+      { label: "OpenAI-compatible base URL", key: "baseUrl", initial: preset.baseUrl },
       { label: "API key (stored locally, not in Git)", key: "apiKey", optional: true },
-      { label: "Model name for Fuse roles", key: "model" },
+      { label: "Model name for Fuse roles", key: "model", initial: preset.model },
     ];
     const values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string }> = {};
     let index = 0;
@@ -411,7 +419,7 @@ export class InteractiveTui {
     const renderField = () => {
       const field = fields[index];
       title.setText(`${boldCyan("Add provider")}\n${field.label}${field.optional ? " (optional)" : ""}\n`);
-      input.setValue("");
+      input.setValue(field.initial ?? "");
       this.tui.requestRender();
     };
     const close = () => {

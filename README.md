@@ -216,6 +216,7 @@ When Jevio runs in an interactive terminal, it uses a focused TUI rather than a 
 - when an implementation decision is materially ambiguous, Fuse can call `ask_user`, opening a keyboard-selectable picker with predefined choices and an `Other...` text answer.
 - `/sessions` and `/resume` open an in-place session picker, including the session title, short ID, and last update time.
 - `/provider` opens configured providers; choose `Add provider` to enter an OpenAI-compatible base URL, API key, and model ID. The key is stored in `.jevio/providers.json`, which is ignored by Git; endpoint and model configuration are stored in `jevio.config.json`. The model is applied to all Fuse roles and can later be split per role in `jevio.config.json`. `Esc` closes provider dialogs.
+- The provider picker includes a `Kimi Code` preset with `https://api.kimi.com/coding/v1` and `Kimi K2.7`; enter only the API key to finish setup.
 
 Non-interactive runs and one-shot tasks keep the simple stdout interface, so CI usage is unchanged.
 
