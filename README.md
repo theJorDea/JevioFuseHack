@@ -230,6 +230,9 @@ prefix, чтобы команда jevio выбрала jevio.cmd.
       }
     }
 
+В `/provider` есть отдельный пресет LM Studio с endpoint `http://localhost:1234/v1`.
+Выберите фактически загруженную в LM Studio модель в последнем поле формы.
+
 Для облачного API задайте baseUrl и имя переменной с ключом:
 
     {
@@ -376,6 +379,10 @@ TypeScript/JavaScript, Python, Go, Rust, Java/Kotlin, C/C++, C#, Ruby и PHP.
 Tree-sitter пока не встраивается: для него нужно поставлять и сопровождать grammar
 для каждого языка, тогда как Universal Ctags уже даёт широкий multi-language
 покрытие без JavaScript native modules.
+
+На Windows Universal Ctags можно установить командой:
+
+    winget install -e --id UniversalCtags.Ctags
 
 Настройки находятся в codeIndex:
 

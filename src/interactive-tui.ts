@@ -467,6 +467,9 @@ export class InteractiveTui {
       ...(!providers.some((provider) => provider.name === "kimi")
         ? [{ value: "__preset_kimi__", label: "Kimi Code", description: "api.kimi.com/coding/v1  Kimi K2.7" }]
         : []),
+      ...(!providers.some((provider) => provider.name === "lmstudio")
+        ? [{ value: "__preset_lmstudio__", label: "LM Studio", description: "localhost:1234/v1  выберите загруженную модель" }]
+        : []),
       ...(!providers.some((provider) => provider.name === "openrouter")
         ? [{ value: "__preset_openrouter__", label: "OpenRouter", description: "400+ моделей через OpenAI-compatible API" }]
         : []),
@@ -495,6 +498,10 @@ export class InteractiveTui {
         name: "kimi",
         baseUrl: "https://api.kimi.com/coding/v1",
         model: "Kimi K2.7",
+      });
+      else if (item.value === "__preset_lmstudio__") this.showProviderForm({
+        name: "lmstudio",
+        baseUrl: "http://localhost:1234/v1",
       });
       else if (item.value === "__preset_openrouter__") this.showProviderForm({
         name: "openrouter",

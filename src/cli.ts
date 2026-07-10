@@ -524,7 +524,10 @@ async function main(): Promise<void> {
           ];
         })
         : ["[!] Ollama и LM Studio на стандартных портах не найдены"]),
-      ...(ctags ? [`${ctags.available ? "[x]" : "[!]"} Symbol index: ${ctags.detail}`] : []),
+      ...(ctags ? [
+        `${ctags.available ? "[x]" : "[!]"} Symbol index: ${ctags.detail}`,
+        ...(!ctags.available && process.platform === "win32" ? ["    Установка: winget install -e --id UniversalCtags.Ctags"] : []),
+      ] : []),
       `[x] Конфигурация: ${options.configPath ?? path.join(options.workspace, "jevio.config.json")}`,
       `[x] Настроенные провайдеры: ${Object.keys(config.providers).join(", ")}`,
       "\nВыберите провайдер или добавьте новый в следующем окне.",
