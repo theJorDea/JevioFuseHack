@@ -110,7 +110,8 @@ export interface ToolContext {
   codeIndex?: CodeIndexConfig;
   confirm(message: string): Promise<boolean>;
   askUser?: (question: string, options: AskUserOption[]) => Promise<string>;
-  updateTodos?: (items: TodoItem[]) => void;
+  updateTodos?: (items: TodoItem[]) => void | Promise<void>;
+  onWorkspaceChange?: () => void;
   delegate?: (role: Exclude<RoleName, "orchestrator">, task: string) => Promise<string>;
 }
 

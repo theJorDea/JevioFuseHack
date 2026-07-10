@@ -1,7 +1,7 @@
 import { appendFile, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ChatMessage } from "./types.ts";
+import type { ChatMessage, TodoItem } from "./types.ts";
 
 const MAX_RESUMED_MESSAGES = 40;
 const MAX_RESUMED_CHARACTERS = 120_000;
@@ -19,6 +19,7 @@ export interface SessionInfo {
 export interface LoadedSession {
   info: SessionInfo;
   history: ChatMessage[];
+  todos: TodoItem[];
 }
 
 function sessionDirectory(workspace: string): string {
@@ -74,6 +75,29 @@ function parseMessages(document: string): ChatMessage[] {
 function compactionBlock(summary: string): string {
   const safeSummary = summary.replaceAll("<!-- /jevio:compaction -->", "&lt;!-- /jevio:compaction --&gt;");
   return `\n<!-- jevio:compaction -->\n## Compacted Context\n\n${safeSummary.trimEnd()}\n<!-- /jevio:compaction -->\n`;
+}
+
+function todoBlock(items: TodoItem[]): string {
+  const serialized = JSON.stringify(items).replaceAll("<!-- /jevio:todo -->", "&lt;!-- /jevio:todo --&gt;");
+  return `\n<!-- jevio:todo -->\n${serialized}\n<!-- /jevio:todo -->\n`;
+}
+
+function parseLatestTodos(document: string): TodoItem[] {
+  const pattern = /<!-- jevio:todo -->\r?\n([\s\S]*?)\r?\n<!-- \/jevio:todo -->/g;
+  let latest: RegExpExecArray | null = null;
+  for (let match = pattern.exec(document); match; match = pattern.exec(document)) latest = match;
+  if (!latest) return [];
+  try {
+    const value = JSON.parse(latest[1]) as unknown;
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is TodoItem => Boolean(
+      item && typeof item === "object"
+      && typeof (item as TodoItem).content === "string"
+      && ["pending", "in_progress", "completed"].includes((item as TodoItem).status),
+    ));
+  } catch {
+    return [];
+  }
 }
 
 function parseEffectiveMessages(document: string): ChatMessage[] {
@@ -152,6 +176,11 @@ export async function appendSessionCompaction(
   session.updatedAt = new Date().toISOString();
 }
 
+export async function saveSessionTodos(session: SessionInfo, items: TodoItem[]): Promise<void> {
+  await appendFile(session.path, todoBlock(items), "utf8");
+  session.updatedAt = new Date().toISOString();
+}
+
 export async function listSessions(workspace: string): Promise<SessionInfo[]> {
   const directory = sessionDirectory(workspace);
   let entries;
@@ -179,7 +208,7 @@ export async function loadSession(workspace: string, requested: string): Promise
     : sessions.find((session) => session.id === requested || session.id.startsWith(requested));
   if (!info) throw new Error(`Session '${requested}' was not found in this workspace.`);
   const document = await readFile(info.path, "utf8");
-  return { info, history: trimHistory(parseEffectiveMessages(document)) };
+  return { info, history: trimHistory(parseEffectiveMessages(document)), todos: parseLatestTodos(document) };
 }
 
 export async function renameSession(session: SessionInfo, title: string): Promise<void> {
@@ -203,7 +232,8 @@ export async function forkSession(workspace: string, source: SessionInfo): Promi
       await appendSessionTurn(fork, String(user.content ?? ""), String(assistant.content ?? ""));
     }
   }
-  return { info: fork, history: effectiveHistory };
+  if (loaded.todos.length) await saveSessionTodos(fork, loaded.todos);
+  return { info: fork, history: effectiveHistory, todos: loaded.todos };
 }
 
 export async function exportSession(session: SessionInfo, destination: string): Promise<string> {

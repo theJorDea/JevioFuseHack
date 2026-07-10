@@ -27,12 +27,14 @@ import {
   loadSession,
   NEW_SESSION_TITLE,
   renameSession,
+  saveSessionTodos,
   type LoadedSession,
   type SessionInfo,
 } from "./session.ts";
 import { discoverSkills } from "./skills.ts";
 import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol-index.ts";
 import { InteractiveTui } from "./interactive-tui.ts";
+import { isImplementationRequest } from "./task-intent.ts";
 import type { ChatMessage, ToolContext } from "./types.ts";
 
 interface CliOptions {
@@ -87,10 +89,6 @@ const INTERACTIVE_HELP = `Session commands:
   /help                        Show commands
   /exit                        Exit
 `;
-
-function isImplementationRequest(task: string): boolean {
-  return /\b(create|build|implement|write|add|fix|modify|refactor|make)\b|созда[йть]|сдела[йть]|напиш[иать]|добав[ьить]|исправ[ьить]|передела[йть]|сайт|страниц/i.test(task);
-}
 
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
@@ -264,14 +262,14 @@ async function pickSession(workspace: string, terminal: Interface): Promise<Load
 async function initialSession(options: CliOptions, terminal?: Interface): Promise<LoadedSession> {
   if (options.continueSession) {
     const sessions = await listSessions(options.workspace);
-    return sessions.length ? loadSession(options.workspace, "latest") : { info: await createSession(options.workspace), history: [] };
+    return sessions.length ? loadSession(options.workspace, "latest") : { info: await createSession(options.workspace), history: [], todos: [] };
   }
   if (options.sessionRequested) {
     if (options.sessionId) return loadSession(options.workspace, options.sessionId);
     const picked = terminal ? await pickSession(options.workspace, terminal) : null;
     if (picked) return picked;
   }
-  return { info: await createSession(options.workspace), history: [] };
+  return { info: await createSession(options.workspace), history: [], todos: [] };
 }
 
 async function main(): Promise<void> {
@@ -306,7 +304,6 @@ async function main(): Promise<void> {
     return /^(y|yes)$/i.test(answer.trim());
   };
   const { config, context } = await makeContext(options, confirm);
-  context.updateTodos = (items) => tui?.setTodos(items);
   context.askUser = async (question, choices) => {
     if (tui) return tui.askUser(question, choices);
     if (!terminal) return "[unavailable: non-interactive run]";
@@ -334,6 +331,15 @@ async function main(): Promise<void> {
 
   let active = await initialSession(options, terminal);
   let history = active.history;
+  let workspaceMutationCount = 0;
+  context.updateTodos = async (items) => {
+    active.todos = items;
+    tui?.setTodos(items);
+    await saveSessionTodos(active.info, items);
+  };
+  context.onWorkspaceChange = () => {
+    workspaceMutationCount += 1;
+  };
   let mode: "team" | "direct" | "orchestrate" = options.team
     ? "team"
     : options.direct
@@ -432,17 +438,21 @@ async function main(): Promise<void> {
       return content;
     }
     const role = mode === "direct" ? "coder" : "orchestrator";
+    const mutationsBefore = workspaceMutationCount;
     const result = await runAgent({ role, task, config, toolContext: context, history, onEvent: reportEvent });
-    if (role === "orchestrator" && isImplementationRequest(task) && !result.delegatedRoles?.includes("coder")) {
-      reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because no write-capable agent was delegated." });
+    if (role === "orchestrator" && isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
+      reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because the workspace was not modified." });
       const coder = await runAgent({
         role: "coder",
-        task: `${task}\n\nThe orchestrator returned this context, but no coder was delegated. Implement the request in the workspace now:\n${result.content}`,
+        task: `${task}\n\nThe orchestrator returned this context, but no workspace files were changed. Implement the request in the workspace now:\n${result.content}`,
         config,
         toolContext: context,
         history,
         onEvent: reportEvent,
       });
+      if (workspaceMutationCount === mutationsBefore) {
+        throw new Error("Coder finished without modifying the workspace.");
+      }
       history = coder.history;
       await appendSessionTurn(active.info, task, coder.content);
       return coder.content;
@@ -456,6 +466,7 @@ async function main(): Promise<void> {
     if (selected.info.path !== active.info.path) await discardEmptySession(active.info);
     active = selected;
     history = selected.history;
+    tui?.setTodos(selected.todos);
     return `Resumed ${active.info.id}: ${active.info.title} (${history.length} messages loaded)`;
   };
   const handleInteractiveInput = async (answer: string, useTuiPicker = false): Promise<{ output?: string; exit?: boolean }> => {
@@ -485,8 +496,9 @@ async function main(): Promise<void> {
     }
     if (["/new", "/clear", "/reset"].includes(command)) {
       await discardEmptySession(active.info);
-      active = { info: await createSession(options.workspace), history: [] };
+      active = { info: await createSession(options.workspace), history: [], todos: [] };
       history = [];
+      tui?.setTodos([]);
       return { output: `Started session ${active.info.id}` };
     }
     if (["/sessions", "/session", "/resume"].includes(command)) {
@@ -504,6 +516,7 @@ async function main(): Promise<void> {
     if (command === "/fork") {
       active = await forkSession(options.workspace, active.info);
       history = active.history;
+      tui?.setTodos(active.todos);
       return { output: `Forked into ${active.info.id}` };
     }
     if (["/export-md", "/export"].includes(command)) {
@@ -582,6 +595,7 @@ async function main(): Promise<void> {
         selectProvider: async (name) => selectProvider(name),
         addProvider,
       });
+      tui.setTodos(active.todos);
       await tui.run();
       return;
     }

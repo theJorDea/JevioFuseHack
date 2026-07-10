@@ -8,7 +8,8 @@ test("streams Kimi reasoning_content and accumulates streamed tool calls", async
   globalThis.fetch = async () => new Response([
     'data: {"choices":[{"delta":{"reasoning_content":"Inspecting the project. "}}]}\n\n',
     'data: {"choices":[{"delta":{"reasoning_content":"I will read the entry file."}}]}\n\n',
-    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{\\"path\\":\\"index.html\\"}"}}]}}]}\n\n',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{\\"path\\":"}}]}}]}\n\n',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"_file","arguments":"\\"index.html\\"}"}}]}}]}\n\n',
     "data: [DONE]\n\n",
   ].join(""), { headers: { "content-type": "text/event-stream" } });
 

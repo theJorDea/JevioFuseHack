@@ -30,7 +30,12 @@ test("write tools require approval and exact replacement", async (t) => {
   };
   assert.equal(await executeTool("write_file", { path: "a.txt", content: "old" }, denied), "Permission denied by user.");
 
-  const approved = { ...denied, confirm: async () => true };
+  let workspaceChanges = 0;
+  const approved = {
+    ...denied,
+    confirm: async () => true,
+    onWorkspaceChange: () => { workspaceChanges += 1; },
+  };
   assert.match(await executeTool("write_file", { path: "a.txt", content: "old" }, approved), /^Wrote /);
   assert.equal(await executeTool("replace_in_file", {
     path: "a.txt",
@@ -38,6 +43,7 @@ test("write tools require approval and exact replacement", async (t) => {
     new_text: "new",
   }, approved), "Replacement applied.");
   assert.equal(await readFile(path.join(root, "a.txt"), "utf8"), "new");
+  assert.equal(workspaceChanges, 2);
 });
 
 test("search reports relative paths and line numbers", async (t) => {

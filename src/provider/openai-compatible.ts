@@ -37,6 +37,12 @@ interface BufferedToolCall {
   arguments: string;
 }
 
+function appendToolName(current: string, fragment: string): string {
+  if (!current || fragment.startsWith(current)) return fragment;
+  if (current.endsWith(fragment)) return current;
+  return current + fragment;
+}
+
 export function effectiveTemperature(role: RoleConfig, requested?: number): number {
   // Moonshot's Kimi K2.7 API currently accepts only temperature 1.
   if (/\bkimi\b/i.test(role.model)) return 1;
@@ -145,7 +151,7 @@ async function streamResponse(body: ReadableStream<Uint8Array>, onDelta: (delta:
       const index = call.index ?? toolCalls.size;
       const current = toolCalls.get(index) ?? { name: "", arguments: "" };
       if (call.id) current.id = call.id;
-      if (call.function?.name) current.name = current.name || call.function.name;
+      if (call.function?.name) current.name = appendToolName(current.name, call.function.name);
       if (call.function?.arguments) current.arguments += call.function.arguments;
       toolCalls.set(index, current);
     }
@@ -166,6 +172,7 @@ async function streamResponse(body: ReadableStream<Uint8Array>, onDelta: (delta:
     }
   }
 
+  buffer += decoder.decode();
   const trailing = buffer.split(/\r?\n/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trimStart())

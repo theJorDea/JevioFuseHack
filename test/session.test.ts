@@ -15,6 +15,7 @@ import {
   loadProjectMemory,
   loadSession,
   renameSession,
+  saveSessionTodos,
 } from "../src/session.ts";
 
 async function workspace(t: { after(callback: () => unknown): void }): Promise<string> {
@@ -29,6 +30,10 @@ test("Markdown sessions support append, resume, rename, fork, and export", async
   const session = await createSession(root);
   await renameSession(session, "Parser work");
   await appendSessionTurn(session, "Fix parsing", "Implemented and tested.");
+  await saveSessionTodos(session, [
+    { content: "Inspect parser", status: "completed" },
+    { content: "Add regression test", status: "in_progress" },
+  ]);
 
   const sessions = await listSessions(root);
   assert.equal(sessions.length, 1);
@@ -40,9 +45,14 @@ test("Markdown sessions support append, resume, rename, fork, and export", async
     "Fix parsing",
     "Implemented and tested.",
   ]);
+  assert.deepEqual(loaded.todos, [
+    { content: "Inspect parser", status: "completed" },
+    { content: "Add regression test", status: "in_progress" },
+  ]);
 
   const fork = await forkSession(root, session);
   assert.equal(fork.history.length, 2);
+  assert.deepEqual(fork.todos, loaded.todos);
   assert.match(fork.info.title, /fork/);
   assert.notEqual(fork.info.id, session.id);
 

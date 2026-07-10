@@ -414,7 +414,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         return [{ content, status: status as TodoItem["status"] }];
       });
       if (!todos.length) throw new Error("todos must include at least one valid item");
-      context.updateTodos?.(todos);
+      await context.updateTodos?.(todos);
       return todos.map((todo) => `- [${todo.status}] ${todo.content}`).join("\n");
     }
 
@@ -485,6 +485,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       await mkdir(path.dirname(file), { recursive: true });
       await writeFile(file, String(input.content ?? ""), "utf8");
       invalidateSymbolIndex(context.workspace);
+      context.onWorkspaceChange?.();
       return `Wrote ${Buffer.byteLength(String(input.content ?? ""), "utf8")} bytes.`;
     }
 
@@ -500,6 +501,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (!approved) return "Permission denied by user.";
       await writeFile(file, `${content.slice(0, first)}${String(input.new_text ?? "")}${content.slice(first + oldText.length)}`, "utf8");
       invalidateSymbolIndex(context.workspace);
+      context.onWorkspaceChange?.();
       return "Replacement applied.";
     }
 
