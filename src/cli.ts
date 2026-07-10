@@ -53,41 +53,41 @@ interface CliOptions {
 const HELP = `Jevio - local-first coding agent
 
 Usage:
-  jevio [options] [task]       Run a task; without a task, start interactive mode
-  jevio init                   Create jevio.config.json and a starter skill
-  jevio doctor                 Check configuration and model endpoints
-  jevio skills                 List discovered project skills
+  jevio [options] [task]       Запустить задачу; без задачи открыть интерактивный режим
+  jevio init                   Создать jevio.config.json и стартовый skill
+  jevio doctor                 Проверить конфигурацию и endpoints моделей
+  jevio skills                 Показать найденные skills проекта
 
 Options:
-  --continue, -c               Resume the latest session in this workspace
-  --session, -S [id]           Pick or resume a specific session
+  --continue, -c               Продолжить последнюю сессию в проекте
+  --session, -S [id]           Выбрать или продолжить конкретную сессию
   --resume, -r [id]            Alias for --session
   --team                       Run architect -> coder -> reviewer pipeline
-  --direct                     Use the coder directly without model orchestration
-  --yes, -y                    Approve workspace writes and shell commands
-  --workspace, -w <path>       Workspace directory (default: current directory)
-  --config, -C <path>          Explicit configuration file
-  --help, -h                   Show this help
+  --direct                     Работать напрямую через coder без оркестрации
+  --yes, -y                    Автоматически разрешать записи и shell-команды
+  --workspace, -w <path>       Папка проекта (по умолчанию текущая)
+  --config, -C <path>          Явный файл конфигурации
+  --help, -h                   Показать эту справку
 `;
 
-const INTERACTIVE_HELP = `Session commands:
-  /new, /clear                 Start a fresh session
-  /sessions, /session          Browse and switch sessions
-  /resume [id]                 Resume a selected session
-  /title [text], /rename       View or change the title
-  /fork                        Fork the current session
-  /export-md [path]            Export the current Markdown transcript
-  /compact [instruction]       Compact context with the configured model
-  /compact status              Show compaction settings and context estimate
-  /provider [name]             Show or switch a configured provider for this session
-  /team                        Use architect -> coder -> reviewer for next tasks
+const INTERACTIVE_HELP = `Команды сессии:
+  /new, /clear                 Начать новую сессию
+  /sessions, /session          Открыть и переключить сессию
+  /resume [id]                 Продолжить выбранную сессию
+  /title [text], /rename       Показать или изменить название
+  /fork                        Создать копию текущей сессии
+  /export-md [path]            Экспортировать Markdown-историю
+  /compact [instruction]       Сжать контекст настроенной моделью
+  /compact status              Показать настройки сжатия и оценку контекста
+  /provider [name]             Показать или сменить провайдера для сессии
+  /team                        Использовать architect -> coder -> reviewer для следующих задач
   /direct                      Use coder directly for next tasks
   /orchestrate                 Return to dynamic orchestration
   /memory                      Show project memory
-  /memory add <text>           Append durable project memory
-  /memory clear                Clear project memory
-  /help                        Show commands
-  /exit                        Exit
+  /memory add <text>           Добавить запись в память проекта
+  /memory clear                Очистить память проекта
+  /help                        Показать команды
+  /exit                        Выйти
 `;
 
 function parseArgs(argv: string[]): CliOptions {
@@ -236,7 +236,7 @@ async function doctor(options: CliOptions): Promise<void> {
 
 function printSessions(sessions: SessionInfo[]): void {
   if (!sessions.length) {
-    console.log("No saved sessions in this workspace.");
+    console.log("В этом проекте нет сохраненных сессий.");
     return;
   }
   sessions.forEach((session, index) => {
@@ -249,13 +249,13 @@ async function pickSession(workspace: string, terminal: Interface): Promise<Load
   const sessions = await listSessions(workspace);
   printSessions(sessions);
   if (!sessions.length || !process.stdin.isTTY) return null;
-  const answer = (await terminal.question("Session number or ID (empty to cancel): ")).trim();
+  const answer = (await terminal.question("Номер или ID сессии (пустая строка — отмена): ")).trim();
   if (!answer) return null;
   const numbered = Number.parseInt(answer, 10);
   const requested = Number.isInteger(numbered) && String(numbered) === answer
     ? sessions[numbered - 1]?.id
     : answer;
-  if (!requested) throw new Error("Invalid session selection.");
+  if (!requested) throw new Error("Некорректный выбор сессии.");
   return loadSession(workspace, requested);
 }
 
@@ -311,7 +311,7 @@ async function main(): Promise<void> {
       process.stdout.write(`\n${question}\n`);
       choices.forEach((choice, index) => process.stdout.write(`  ${index + 1}. ${choice.label}${choice.description ? ` - ${choice.description}` : ""}\n`));
     }
-    const answer = (await terminal.question(choices.length ? "Choose a number or type an answer: " : `${question}\n> `)).trim();
+    const answer = (await terminal.question(choices.length ? "Выберите номер или введите ответ: " : `${question}\n> `)).trim();
     const selected = Number.parseInt(answer, 10);
     return Number.isInteger(selected) && String(selected) === answer && choices[selected - 1]
       ? choices[selected - 1].label
@@ -352,7 +352,7 @@ async function main(): Promise<void> {
   const selectProvider = (name: string): string => {
     if (!config.providers[name]) throw new Error(`Unknown provider '${name}'. Add it to jevio.config.json first.`);
     for (const role of Object.values(config.roles)) role.provider = name;
-    return `Provider: ${name}. Applied to every role for this session; role model names remain unchanged.`;
+    return `Провайдер: ${name}. Применен ко всем ролям этой сессии; названия моделей ролей не изменены.`;
   };
   const addProvider = async (provider: { name: string; baseUrl: string; apiKey?: string; model: string }): Promise<string> => {
     const file = await addProviderConfig(options.workspace, options.configPath, provider);
@@ -367,7 +367,7 @@ async function main(): Promise<void> {
     }
     config.defaultProvider = provider.name;
     const secretFile = provider.apiKey ? await saveProviderSecret(options.workspace, provider.name, provider.apiKey) : undefined;
-    return `Provider: ${provider.name}; model: ${provider.model}. Saved configuration to ${file}.${secretFile ? ` API key saved locally in ${secretFile}.` : ""}`;
+    return `Провайдер: ${provider.name}; модель: ${provider.model}. Конфигурация сохранена в ${file}.${secretFile ? ` API-ключ сохранен локально в ${secretFile}.` : ""}`;
   };
   let finalization: Promise<void> | undefined;
   const finalizeSession = (): Promise<void> => {
@@ -375,7 +375,7 @@ async function main(): Promise<void> {
       finalization = (async () => {
         await discardEmptySession(active.info);
         if (active.info.messageCount > 0) {
-          console.log(`\nTo resume this session: node src/cli.ts -r ${active.info.id}`);
+          console.log(`\nЧтобы продолжить сессию: node src/cli.ts -r ${active.info.id}`);
         }
         terminal?.close();
       })();
@@ -491,7 +491,7 @@ async function main(): Promise<void> {
       return { output: "Mode: orchestrate." };
     }
     if (command === "/provider") {
-      if (!argument) return { output: `Provider: ${currentProvider()}. Use /provider <name> to switch this session.` };
+      if (!argument) return { output: `Провайдер: ${currentProvider()}. Используйте /provider <имя>, чтобы сменить его для этой сессии.` };
       return { output: selectProvider(parts[0] ?? "") };
     }
     if (["/new", "/clear", "/reset"].includes(command)) {
@@ -499,10 +499,10 @@ async function main(): Promise<void> {
       active = { info: await createSession(options.workspace), history: [], todos: [] };
       history = [];
       tui?.setTodos([]);
-      return { output: `Started session ${active.info.id}` };
+      return { output: `Сессия ${active.info.id} создана` };
     }
     if (["/sessions", "/session", "/resume"].includes(command)) {
-      if (!argument && useTuiPicker) return { output: "Choose a session from the session picker." };
+      if (!argument && useTuiPicker) return { output: "Выберите сессию в списке." };
       const selected = argument
         ? await loadSession(options.workspace, argument)
         : await pickSession(options.workspace, terminal);
@@ -547,18 +547,18 @@ async function main(): Promise<void> {
     if (command === "/memory") {
       if (parts[0] === "add") {
         const entry = parts.slice(1).join(" ").trim();
-        if (!entry) return { output: "Usage: /memory add <text>" };
+        if (!entry) return { output: "Использование: /memory add <текст>" };
         const file = await appendProjectMemory(options.workspace, entry);
         context.projectMemory = await loadProjectMemory(options.workspace);
         return { output: `Memory updated: ${file}` };
       }
       if (parts[0] === "clear") {
-        if (!(await confirm("Clear project memory?"))) return { output: "Memory clear cancelled." };
+        if (!(await confirm("Очистить память проекта?"))) return { output: "Очистка памяти отменена." };
         const file = await clearProjectMemory(options.workspace);
         context.projectMemory = "";
-        return { output: `Memory cleared: ${file}` };
+        return { output: `Память очищена: ${file}` };
       }
-      return { output: context.projectMemory?.trim() || "Project memory is empty." };
+      return { output: context.projectMemory?.trim() || "Память проекта пуста." };
     }
     return { output: await executeTask(task) };
   };

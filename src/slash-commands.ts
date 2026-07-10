@@ -5,20 +5,20 @@ export interface SlashCommandDefinition {
 }
 
 export const SLASH_COMMANDS: SlashCommandDefinition[] = [
-  { name: "help", description: "Show available commands" },
-  { name: "new", description: "Start a new session" },
-  { name: "sessions", description: "Browse saved sessions" },
-  { name: "resume", description: "Resume a session by ID", argumentHint: "<id>" },
-  { name: "title", description: "Show or change the session title", argumentHint: "[text]" },
-  { name: "fork", description: "Fork the current session" },
-  { name: "export-md", description: "Export the transcript", argumentHint: "[path]" },
-  { name: "compact", description: "Compact the current context", argumentHint: "[status|instruction]" },
-  { name: "provider", description: "Choose a configured model provider", argumentHint: "[name]" },
-  { name: "team", description: "Use architect, coder, and reviewer" },
-  { name: "direct", description: "Use the coder directly" },
-  { name: "orchestrate", description: "Return to orchestration mode" },
-  { name: "memory", description: "View or edit project memory", argumentHint: "[add|clear]" },
-  { name: "exit", description: "Close Jevio" },
+  { name: "help", description: "Показать доступные команды" },
+  { name: "new", description: "Начать новую сессию" },
+  { name: "sessions", description: "Открыть сохраненные сессии" },
+  { name: "resume", description: "Продолжить сессию по ID", argumentHint: "<id>" },
+  { name: "title", description: "Показать или изменить название сессии", argumentHint: "[текст]" },
+  { name: "fork", description: "Создать копию текущей сессии" },
+  { name: "export-md", description: "Экспортировать историю", argumentHint: "[путь]" },
+  { name: "compact", description: "Сжать текущий контекст", argumentHint: "[статус|инструкция]" },
+  { name: "provider", description: "Выбрать провайдера модели", argumentHint: "[имя]" },
+  { name: "team", description: "Использовать architect, coder и reviewer" },
+  { name: "direct", description: "Работать напрямую через coder" },
+  { name: "orchestrate", description: "Вернуться в режим оркестрации" },
+  { name: "memory", description: "Просмотреть или изменить память проекта", argumentHint: "[add|clear]" },
+  { name: "exit", description: "Выйти из Fuse" },
 ];
 
 export function findSlashCommands(input: string): SlashCommandDefinition[] {

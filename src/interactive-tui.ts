@@ -136,7 +136,7 @@ export class InteractiveTui {
   constructor(options: InteractiveTuiOptions) {
     this.options = options;
     this.tui = new TUI(new ProcessTerminal());
-    this.loader = new Loader(this.tui, cyan, dim, "Ready", { frames: ["-", "\\", "|", "/"], intervalMs: 120 });
+    this.loader = new Loader(this.tui, cyan, dim, "Готово", { frames: ["-", "\\", "|", "/"], intervalMs: 120 });
     this.editor = new Editor(this.tui, { borderColor: cyan, selectList: selectTheme }, { paddingX: 1, autocompleteMaxVisible: 8 });
     const autocomplete = new CombinedAutocompleteProvider(
       SLASH_COMMANDS.map((command) => ({
@@ -155,7 +155,7 @@ export class InteractiveTui {
     this.root.addChild(this.transcript);
     this.root.addChild(this.loader);
     this.root.addChild(this.status);
-    this.help.setText(dim("Enter send · Tab complete · Ctrl+K commands · Esc close · Ctrl+C exit"));
+    this.help.setText(dim("Enter отправить · Tab подсказки · Ctrl+K команды · Esc закрыть · Ctrl+C выход"));
     this.root.addChild(this.help);
     this.root.addChild(this.editor);
     this.tui.addChild(this.root);
@@ -163,7 +163,7 @@ export class InteractiveTui {
     this.tui.addInputListener((data) => {
       if (data === "\x03") {
         if (this.busy) {
-          this.setStatus("Agent is still working. Wait for the current task to finish.", yellow);
+          this.setStatus("Агент еще работает. Дождитесь завершения текущей задачи.", yellow);
         } else {
           this.stop();
         }
@@ -188,7 +188,7 @@ export class InteractiveTui {
   async run(): Promise<void> {
     this.refreshHeader();
     if (this.options.getSession().messageCount === 0) this.showWelcome();
-    this.setStatus("Ready", dim);
+    this.setStatus("Готово", dim);
     this.tui.start();
     this.tui.requestRender(true);
     await new Promise<void>((resolve) => {
@@ -199,7 +199,7 @@ export class InteractiveTui {
   setTodos(items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>): void {
     const marker = { pending: "[ ]", in_progress: "[>]", completed: "[x]" } as const;
     this.todos.setText(items.length
-      ? `${boldCyan("Plan")}\n${items.map((item, index) => {
+      ? `${boldCyan("План")}\n${items.map((item, index) => {
         const line = (index + 1) + ". " + marker[item.status] + " " + item.content;
         return item.status === "completed" ? dim(line) : item.status === "in_progress" ? cyan(line) : white(line);
       }).join("\n")}\n`
@@ -210,45 +210,45 @@ export class InteractiveTui {
   reportEvent(event: { type: "thinking" | "thinking_delta" | "thinking_done" | "tool" | "progress"; role: string; detail: string }): void {
     switch (event.type) {
       case "thinking_delta":
-        this.loader.setMessage("Thinking...");
-        this.setStatus("Thinking...", dim);
+        this.loader.setMessage("Размышляю...");
+        this.setStatus("Размышляю...", dim);
         this.appendThinking(event.role, event.detail);
         return;
       case "thinking_done":
         this.finalizeThinking(event.role);
         return;
       case "tool":
-        this.loader.setMessage("Running tool...");
-        this.setStatus(`Running tool: ${event.detail}`, messageStyles.tool);
+        this.loader.setMessage("Выполняю инструмент...");
+        this.setStatus(`Выполняю: ${event.detail}`, messageStyles.tool);
         return;
       case "progress":
-        this.loader.setMessage("Planning...");
-        this.setStatus(event.detail || "Planning...", green);
+        this.loader.setMessage("Планирую...");
+        this.setStatus(event.detail || "Планирую...", green);
         return;
       case "thinking":
-        this.loader.setMessage("Thinking...");
-        this.setStatus(event.detail || "Thinking...", dim);
+        this.loader.setMessage("Размышляю...");
+        this.setStatus(event.detail || "Размышляю...", dim);
         return;
     }
   }
 
   async confirm(message: string): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      this.loader.setMessage("Waiting for approval...");
-      this.setStatus("Waiting for approval", yellow);
+      this.loader.setMessage("Жду подтверждения...");
+      this.setStatus("Жду подтверждения", yellow);
       const overlay = modalSurface();
       overlay.addChild(new Text(yellow(`${message}\n\n`), 1, 1));
       const choices = new SelectList([
-        { value: "yes", label: "Approve", description: "Allow this operation" },
-        { value: "no", label: "Reject", description: "Keep the current state" },
+        { value: "yes", label: "Разрешить", description: "Разрешить операцию" },
+        { value: "no", label: "Отклонить", description: "Оставить текущее состояние" },
       ], 2, selectTheme);
       overlay.addChild(choices);
       const close = (answer: boolean) => {
         handle.hide();
         this.dismissOverlay = undefined;
         this.tui.setFocus(this.editor);
-        this.loader.setMessage("Thinking...");
-        this.setStatus("Working...", cyan);
+        this.loader.setMessage("Размышляю...");
+        this.setStatus("Работаю...", cyan);
         resolve(answer);
       };
       choices.onSelect = (choice) => close(choice.value === "yes");
@@ -261,13 +261,13 @@ export class InteractiveTui {
 
   async askUser(question: string, options: Array<{ label: string; description?: string }>): Promise<string> {
     return new Promise<string>((resolve) => {
-      this.loader.setMessage("Waiting for your answer");
-      this.setStatus("Waiting for your answer", yellow);
+      this.loader.setMessage("Жду вашего ответа");
+      this.setStatus("Жду вашего ответа", yellow);
       const overlay = modalSurface();
-      overlay.addChild(new Text(boldCyan(`FUSE NEEDS INPUT\n${question}\n`), 1, 1));
+      overlay.addChild(new Text(boldCyan(`ТРЕБУЕТСЯ ВАШ ОТВЕТ\n${question}\n`), 1, 1));
       const items: SelectItem[] = [
         ...options.map((option) => ({ value: option.label, label: option.label, description: option.description })),
-        { value: "__custom_answer__", label: "Other...", description: "Type a custom response" },
+        { value: "__custom_answer__", label: "Другое...", description: "Ввести свой ответ" },
       ];
       const choices = new SelectList(items, 8, selectTheme);
       overlay.addChild(choices);
@@ -275,8 +275,8 @@ export class InteractiveTui {
         handle.hide();
         this.dismissOverlay = undefined;
         this.tui.setFocus(this.editor);
-        this.loader.setMessage("Thinking...");
-        this.setStatus("Working...", cyan);
+        this.loader.setMessage("Размышляю...");
+        this.setStatus("Работаю...", cyan);
         if (answer && answer !== "[cancelled]") this.appendMessage("you", answer);
         resolve(answer);
       };
@@ -298,15 +298,15 @@ export class InteractiveTui {
 
   private showQuestionInput(question: string, resolve: (answer: string) => void): void {
     const overlay = modalSurface();
-    overlay.addChild(new Text(boldCyan(`FUSE NEEDS INPUT\n${question}\n`), 1, 1));
+    overlay.addChild(new Text(boldCyan(`ТРЕБУЕТСЯ ВАШ ОТВЕТ\n${question}\n`), 1, 1));
     const input = new Input();
     overlay.addChild(input);
     const close = (answer: string) => {
       handle.hide();
       this.dismissOverlay = undefined;
       this.tui.setFocus(this.editor);
-      this.loader.setMessage("Thinking...");
-      this.setStatus("Working...", cyan);
+      this.loader.setMessage("Размышляю...");
+      this.setStatus("Работаю...", cyan);
       if (answer && answer !== "[cancelled]") this.appendMessage("you", answer);
       resolve(answer);
     };
@@ -327,7 +327,7 @@ export class InteractiveTui {
     }
     if (/^\/clear$/i.test(value)) {
       this.transcript.clear();
-      this.setStatus("Transcript cleared", dim);
+      this.setStatus("История очищена", dim);
       this.tui.requestRender();
       return;
     }
@@ -348,23 +348,23 @@ export class InteractiveTui {
     this.editor.addToHistory(input);
     this.editor.setText("");
     if (!value.startsWith("/")) this.appendMessage("you", input);
-    this.loader.setMessage(value.startsWith("/") ? "Applying command..." : "Thinking...");
+    this.loader.setMessage(value.startsWith("/") ? "Выполняю команду..." : "Размышляю...");
     this.loader.start();
-    this.setStatus("Working...", cyan);
+    this.setStatus("Работаю...", cyan);
     let failed = false;
     try {
       const result = await this.options.submit(input);
       if (result.output) this.appendMessage("fuse", result.output);
       this.refreshHeader();
       if (result.exit) this.stop();
-      else if (!result.output) this.setStatus("Ready", dim);
+      else if (!result.output) this.setStatus("Готово", dim);
     } catch (error) {
       failed = true;
       this.appendMessage("error", getErrorMessage(error));
-      this.setStatus("Task failed", red);
+      this.setStatus("Задача завершилась с ошибкой", red);
     } finally {
       this.loader.stop();
-      if (!failed) this.setStatus("Ready", dim);
+      if (!failed) this.setStatus("Готово", dim);
       this.busy = false;
       this.editor.disableSubmit = false;
       this.tui.setFocus(this.editor);
@@ -375,7 +375,7 @@ export class InteractiveTui {
   private async showSessionPicker(): Promise<void> {
     const sessions = await this.options.listSessions();
     if (!sessions.length) {
-      this.appendMessage("system", "No saved sessions in this workspace.");
+      this.appendMessage("system", "В этом проекте нет сохраненных сессий.");
       return;
     }
     const currentId = this.options.getSession().id;
@@ -386,7 +386,7 @@ export class InteractiveTui {
     }));
     const list = new SelectList(items, 10, selectTheme);
     const overlay = modalSurface();
-    overlay.addChild(new Text(boldCyan("Saved sessions\n"), 1, 1));
+    overlay.addChild(new Text(boldCyan("Сохраненные сессии\n"), 1, 1));
     overlay.addChild(list);
     const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "60%", anchor: "center", margin: 2 });
     const close = () => {
@@ -406,12 +406,12 @@ export class InteractiveTui {
   private async resumeFromPicker(id: string): Promise<void> {
     this.busy = true;
     this.editor.disableSubmit = true;
-    this.loader.setMessage("Loading session");
+    this.loader.setMessage("Загружаю сессию");
     this.loader.start();
     try {
       this.appendMessage("system", await this.options.resumeSession(id));
       this.refreshHeader();
-      this.setStatus("Ready", dim);
+      this.setStatus("Готово", dim);
     } catch (error) {
       this.appendMessage("error", getErrorMessage(error));
     } finally {
@@ -435,11 +435,11 @@ export class InteractiveTui {
       ...(!providers.some((provider) => provider.name === "kimi")
         ? [{ value: "__preset_kimi__", label: "Kimi Code", description: "api.kimi.com/coding/v1  Kimi K2.7" }]
         : []),
-      { value: "__add_provider__", label: "Add provider", description: "Configure an OpenAI-compatible endpoint" },
+      { value: "__add_provider__", label: "Добавить провайдера", description: "Configure an OpenAI-compatible endpoint" },
     ];
     const list = new SelectList(items, 10, selectTheme);
     const overlay = modalSurface();
-    overlay.addChild(new Text(boldCyan("Configured providers\n"), 1, 1));
+    overlay.addChild(new Text(boldCyan("Настроенные провайдеры\n"), 1, 1));
     overlay.addChild(list);
     const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "60%", anchor: "center", margin: 2 });
     const close = () => {
@@ -466,7 +466,7 @@ export class InteractiveTui {
     try {
       this.appendMessage("system", await this.options.selectProvider(name));
       this.refreshHeader();
-      this.setStatus("Ready", dim);
+      this.setStatus("Готово", dim);
     } catch (error) {
       this.appendMessage("error", getErrorMessage(error));
     }
@@ -474,10 +474,10 @@ export class InteractiveTui {
 
   private showProviderForm(preset: Partial<{ name: string; baseUrl: string; model: string }> = {}): void {
     const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKey" | "model"; optional?: boolean; initial?: string }> = [
-      { label: "Provider name", key: "name", initial: preset.name },
-      { label: "OpenAI-compatible base URL", key: "baseUrl", initial: preset.baseUrl },
-      { label: "API key (stored locally, not in Git)", key: "apiKey", optional: true },
-      { label: "Model name for Fuse roles", key: "model", initial: preset.model },
+      { label: "Имя провайдера", key: "name", initial: preset.name },
+      { label: "Базовый URL OpenAI-совместимого API", key: "baseUrl", initial: preset.baseUrl },
+      { label: "API-ключ (хранится локально, не в Git)", key: "apiKey", optional: true },
+      { label: "Название модели для ролей Fuse", key: "model", initial: preset.model },
     ];
     const values: Partial<{ name: string; baseUrl: string; apiKey: string; model: string }> = {};
     let index = 0;
@@ -488,7 +488,7 @@ export class InteractiveTui {
     overlay.addChild(input);
     const renderField = () => {
       const field = fields[index];
-      title.setText(`${boldCyan("Add provider")}\n${field.label}${field.optional ? " (optional)" : ""}\n`);
+      title.setText(`${boldCyan("Добавить провайдера")}\n${field.label}${field.optional ? " (optional)" : ""}\n`);
       input.setValue(field.initial ?? "");
       this.tui.requestRender();
     };
@@ -506,12 +506,12 @@ export class InteractiveTui {
         try {
           new URL(value);
         } catch {
-          this.setStatus("Enter a valid base URL", red);
+          this.setStatus("Введите корректный базовый URL", red);
           return;
         }
       }
       if (field.key === "name" && !/^[a-zA-Z0-9_-]+$/.test(value)) {
-        this.setStatus("Use letters, numbers, _ or - for provider name", red);
+        this.setStatus("Используйте буквы, цифры, _ или - в имени провайдера", red);
         return;
       }
       values[field.key] = value;
@@ -536,7 +536,7 @@ export class InteractiveTui {
       const message = await this.options.addProvider({ name, baseUrl, apiKey: values.apiKey || undefined, model: values.model ?? "" });
       this.appendMessage("system", message);
       this.refreshHeader();
-      this.setStatus("Ready", dim);
+      this.setStatus("Готово", dim);
     } catch (error) {
       this.appendMessage("error", getErrorMessage(error));
     }
@@ -551,7 +551,7 @@ export class InteractiveTui {
   }
 
   private showWelcome(): void {
-    this.appendMessage("system", "Welcome to Fuse.\n\nPress Ctrl+K or type `/` to open commands. Use `/provider` to switch models or `/sessions` to resume previous work.");
+    this.appendMessage("system", "Добро пожаловать в Fuse.\n\nНажмите Ctrl+K или введите `/`, чтобы открыть команды. Используйте `/provider` для смены модели или `/sessions` для продолжения работы.");
   }
 
   private appendThinking(role: string, delta: string): void {
@@ -559,7 +559,7 @@ export class InteractiveTui {
     if (!this.liveThinking || this.liveThinking.role !== role) {
       this.finalizeThinking();
       const component = new Text("", 1, 0);
-      const heading = new Text(dim(`${role.toUpperCase()} THINKING  (Ctrl+O to expand)`), 1, 1);
+      const heading = new Text(dim(`${role.toUpperCase()} РАЗМЫШЛЕНИЕ  (Ctrl+O раскрыть)`), 1, 1);
       this.transcript.addChild(heading);
       this.transcript.addChild(component);
       this.transcript.addChild(new Text(""));
@@ -585,9 +585,9 @@ export class InteractiveTui {
 
   private toggleThinking(): void {
     if (!this.liveThinking) return;
-   this.liveThinking.expanded = !this.liveThinking.expanded;
-   this.liveThinking.heading.setText(dim(`${this.liveThinking.role.toUpperCase()} THINKING  (Ctrl+O to ${this.liveThinking.expanded ? "collapse" : "expand"})`));
-   const visible = this.liveThinking.expanded
+    this.liveThinking.expanded = !this.liveThinking.expanded;
+    this.liveThinking.heading.setText(dim(`${this.liveThinking.role.toUpperCase()} РАЗМЫШЛЕНИЕ  (Ctrl+O: ${this.liveThinking.expanded ? "свернуть" : "раскрыть"})`));
+    const visible = this.liveThinking.expanded
       ? this.liveThinking.text
       : this.liveThinking.text.split("\n").slice(-12).join("\n");
     this.liveThinking.component.setText(dim(visible));
@@ -602,7 +602,7 @@ export class InteractiveTui {
     }));
     const list = new SelectList(items, 12, selectTheme);
     const overlay = modalSurface();
-    overlay.addChild(new Text(boldCyan("Commands\n"), 1, 1));
+    overlay.addChild(new Text(boldCyan("Команды\n"), 1, 1));
     overlay.addChild(list);
     const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "70%", anchor: "center", margin: 2 });
     const close = () => {
