@@ -731,6 +731,17 @@ async function main(): Promise<void> {
     tui?.setTodos(selected.todos);
     return `Resumed ${active.info.id}: ${active.info.title} (${history.length} messages loaded)`;
   };
+  const executeTaskWithFailureRecord = async (task: string): Promise<string> => {
+    try {
+      return await executeTask(task);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failure = `Задача не завершена: ${message}`;
+      history = [...history, { role: "user", content: task }, { role: "assistant", content: failure }];
+      await appendSessionTurn(active.info, task, failure);
+      throw error;
+    }
+  };
   const fixLatestCouncilReview = async (): Promise<string> => {
     const review = await loadLatestCouncilReview(active.info);
     if (!review) throw new Error("В текущей сессии нет Council Review. Сначала запустите jevio review --council.");
@@ -849,7 +860,7 @@ async function main(): Promise<void> {
       }
       return { output: context.projectMemory?.trim() || "Память проекта пуста." };
     }
-    return { output: await executeTask(task) };
+    return { output: await executeTaskWithFailureRecord(task) };
   };
 
   try {
@@ -858,7 +869,7 @@ async function main(): Promise<void> {
       return;
     }
     if (options.task) {
-      console.log(`\n${await executeTask(options.task)}`);
+      console.log(`\n${await executeTaskWithFailureRecord(options.task)}`);
       return;
     }
 

@@ -36,3 +36,28 @@ test("Responses transport normalizes OpenAI function calls", async (t) => {
   assert.equal(result.content, "Inspecting.");
   assert.deepEqual(result.toolCalls, [{ id: "call_1", name: "list_files", arguments: "{\"path\":\"src\"}" }]);
 });
+
+test("stream transport retries once without streaming after LM Studio termination", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) { controller.error(new Error("terminated")); },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "Recovered" } }] }), {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const client = new OpenAICompatibleClient(
+    { baseUrl: "http://localhost:1234/v1" },
+    { model: "local-model" },
+  );
+  const result = await client.complete({ messages: [{ role: "user", content: "Hello" }] }, () => {});
+  assert.equal(result.content, "Recovered");
+  assert.equal(calls, 2);
+});

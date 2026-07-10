@@ -80,24 +80,30 @@ export class OpenAICompatibleClient implements ModelClient {
       throw new Error(`Environment variable ${this.#provider.apiKeyEnv} is not set.`);
     }
 
-    const response = await fetch(`${this.#provider.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-        ...this.#provider.headers,
-      },
-      body: JSON.stringify({
-        model: this.#role.model,
-        messages: request.messages,
-        tools: request.tools?.length ? request.tools : undefined,
-        tool_choice: request.tools?.length ? "auto" : undefined,
-        temperature: effectiveTemperature(this.#role, request.temperature),
-        max_tokens: request.maxTokens ?? this.#role.maxTokens,
-        stream: Boolean(onDelta),
-      }),
-      signal: AbortSignal.timeout(10 * 60_000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.#provider.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+          ...this.#provider.headers,
+        },
+        body: JSON.stringify({
+          model: this.#role.model,
+          messages: request.messages,
+          tools: request.tools?.length ? request.tools : undefined,
+          tool_choice: request.tools?.length ? "auto" : undefined,
+          temperature: effectiveTemperature(this.#role, request.temperature),
+          max_tokens: request.maxTokens ?? this.#role.maxTokens,
+          stream: Boolean(onDelta),
+        }),
+        signal: AbortSignal.timeout(10 * 60_000),
+      });
+    } catch (error) {
+      if (onDelta) return this.complete(request);
+      throw new Error(`Unable to reach model endpoint ${this.#provider.baseUrl}: ${errorMessage(error)}`);
+    }
 
     if (!response.ok) {
       const text = await response.text();
@@ -121,7 +127,12 @@ export class OpenAICompatibleClient implements ModelClient {
     }
 
     if (!response.body) throw new Error("Model endpoint returned an empty streaming response.");
-    return streamResponse(response.body, onDelta);
+    try {
+      return await streamResponse(response.body, onDelta);
+    } catch (error) {
+      if (isTransientStreamError(error)) return this.complete(request);
+      throw error;
+    }
   }
 
   private async completeResponses(request: ModelRequest, onDelta?: (delta: ModelDelta) => void): Promise<ModelResponse> {
@@ -189,6 +200,14 @@ export class OpenAICompatibleClient implements ModelClient {
     if (content) onDelta?.({ type: "text", delta: content });
     return modelResponse({ content, ...(calls.length ? { tool_calls: calls } : {}) });
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isTransientStreamError(error: unknown): boolean {
+  return /terminated|fetch failed|socket|econnreset|premature|closed/i.test(errorMessage(error));
 }
 
 function modelResponse(message: OpenAIMessage): ModelResponse {
