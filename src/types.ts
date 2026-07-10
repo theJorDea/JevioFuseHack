@@ -47,6 +47,7 @@ export interface JevioConfig {
     maxReviewFixes: number;
     maxToolOutputCharacters: number;
     keepRecentToolResults: number;
+    maxParallelReadAgents: number;
   };
   compaction: {
     auto: boolean;

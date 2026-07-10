@@ -41,7 +41,8 @@
     "maxTurns": 24,
     "maxReviewFixes": 1,
     "maxToolOutputCharacters": 12000,
-    "keepRecentToolResults": 6
+    "keepRecentToolResults": 6,
+    "maxParallelReadAgents": 1
   },
   "compaction": {
     "auto": true,

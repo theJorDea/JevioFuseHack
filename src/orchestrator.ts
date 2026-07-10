@@ -47,6 +47,20 @@ function labeledReports(name: string, reports: string[]): string {
   return reports.map((report, index) => `## ${name} ${index + 1}\n${report}`).join("\n\n");
 }
 
+async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const result = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(items.length, Math.floor(limit) || 1)) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      result[index] = await task(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return result;
+}
+
 async function reviewAndFix(
   options: TeamOptions,
   runner: typeof runAgent,
@@ -123,9 +137,10 @@ export async function runTeam(options: TeamOptions): Promise<TeamResult> {
 
 export async function runCouncilPlan(options: TeamOptions): Promise<CouncilPlanResult> {
   const runner = options.runner ?? runAgent;
-  const architectResults = [];
-  for (const prompt of COUNCIL_PLAN_PROMPTS) {
-    architectResults.push(await runner({
+  const architectResults = await mapWithConcurrency(
+    COUNCIL_PLAN_PROMPTS,
+    options.config.agent.maxParallelReadAgents,
+    async (prompt) => runner({
       role: "architect",
       task: `${prompt}\n\nUSER REQUEST:\n${options.task}`,
       config: options.config,
@@ -133,8 +148,8 @@ export async function runCouncilPlan(options: TeamOptions): Promise<CouncilPlanR
       history: options.history,
       maxTurns: Math.min(10, options.config.agent.maxTurns),
       onEvent: options.onEvent,
-    }));
-  }
+    }),
+  );
   const architectPlans = architectResults.map((result) => result.content);
   const judgeResult = await runner({
     role: "judge",
@@ -174,9 +189,10 @@ export async function runCouncilReview(options: TeamOptions): Promise<CouncilRev
     autoApproveShell: false,
     confirm: async () => false,
   };
-  const reviewerResults = [];
-  for (const prompt of COUNCIL_REVIEW_PROMPTS) {
-    reviewerResults.push(await runner({
+  const reviewerResults = await mapWithConcurrency(
+    COUNCIL_REVIEW_PROMPTS,
+    options.config.agent.maxParallelReadAgents,
+    async (prompt) => runner({
       role: "reviewer",
       task: `${prompt}\n\nReview scope:\n${options.task}\n\nInspect the actual workspace and git diff. End with a verdict marker.`,
       config: options.config,
@@ -184,8 +200,8 @@ export async function runCouncilReview(options: TeamOptions): Promise<CouncilRev
       history: options.history,
       maxTurns: Math.min(12, options.config.agent.maxTurns),
       onEvent: options.onEvent,
-    }));
-  }
+    }),
+  );
   const reviews = reviewerResults.map((result) => result.content);
   const judgeResult = await runner({
     role: "judge",

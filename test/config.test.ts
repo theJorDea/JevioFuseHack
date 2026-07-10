@@ -28,6 +28,7 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.roles.compactor.model, "qwen3:14b");
   assert.equal(config.agent.maxTurns, 24);
   assert.equal(config.agent.keepRecentToolResults, 6);
+  assert.equal(config.agent.maxParallelReadAgents, 1);
   assert.equal(config.compaction.contextWindowTokens, 32768);
   assert.equal(config.codeIndex.backend, "auto");
 });

@@ -20,6 +20,7 @@ const DEFAULT_CONFIG: JevioConfig = {
     maxReviewFixes: 1,
     maxToolOutputCharacters: 12_000,
     keepRecentToolResults: 6,
+    maxParallelReadAgents: 1,
   },
   compaction: {
     auto: true,

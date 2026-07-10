@@ -90,6 +90,7 @@ const INTERACTIVE_HELP = `Команды сессии:
   /setup                       Настроить провайдера и модель для сессии
   /provider [name]             Показать или сменить провайдера для сессии
   /roles                       Назначить отдельные провайдеры и модели ролям
+  /skills                      Показать встроенные и проектные skills
   /team                        Использовать architect -> coder -> reviewer для следующих задач
   /council-plan                Совет архитекторов, затем coder и reviewer
   /council-review              Совет ревьюеров текущих изменений
@@ -631,6 +632,13 @@ async function main(): Promise<void> {
 
     if (["/exit", "/quit", "/q"].includes(command)) return { exit: true };
     if (["/help", "/h", "/?"].includes(command)) return { output: INTERACTIVE_HELP };
+    if (command === "/skills") {
+      return {
+        output: context.skills.length
+          ? context.skills.map((skill) => `${skill.name}${skill.modelInvocable ? "" : " (только вручную)"}\n${skill.description}`).join("\n\n")
+          : "Skills не найдены.",
+      };
+    }
     if (command === "/team") {
       mode = "team";
       return { output: "Mode: team (architect -> coder -> reviewer)." };

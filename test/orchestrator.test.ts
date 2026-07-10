@@ -66,6 +66,40 @@ test("council plan selects a plan before one coder changes the workspace", async
   assert.equal(result.content, "coder report");
 });
 
+test("council planning limits concurrent read-only architects", async () => {
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+  };
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.agent.maxParallelReadAgents = 3;
+  let activeArchitects = 0;
+  let peakArchitects = 0;
+  await runCouncilPlan({
+    task: "Plan a change",
+    config,
+    toolContext: context,
+    runner: async (options) => {
+      if (options.role === "architect") {
+        activeArchitects += 1;
+        peakArchitects = Math.max(peakArchitects, activeArchitects);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeArchitects -= 1;
+      }
+      return {
+        content: options.role === "reviewer" ? "<verdict>PASS</verdict>" : `${options.role} report`,
+        turns: 1,
+        history: [],
+      };
+    },
+  });
+
+  assert.equal(peakArchitects, 3);
+});
+
 test("council review combines three focused reports into a judge verdict", async () => {
   const calls: string[] = [];
   const approvalModes: boolean[] = [];
