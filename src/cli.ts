@@ -684,6 +684,7 @@ async function main(): Promise<void> {
       }
     }
     if (active.info.title === NEW_SESSION_TITLE) await renameSession(active.info, task.split(/\r?\n/)[0].slice(0, 80));
+    const requiresWorkspaceChange = isImplementationRequest(task, history);
     if (mode === "council-plan") {
       const mutationsBefore = workspaceMutationCount;
       const result = await runCouncilPlan({
@@ -693,9 +694,11 @@ async function main(): Promise<void> {
         history,
         onEvent: reportEvent,
         approvePlan,
+        requireWorkspaceChange: requiresWorkspaceChange,
+        getWorkspaceMutationCount: () => workspaceMutationCount,
       });
-      if (isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
-        throw new Error("Council coder finished without modifying the workspace.");
+      if (requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
+        throw new Error("Coder совета завершил работу, не изменив файлы проекта.");
       }
       const content = `${result.content}\n\nВыбранный план совета:\n${result.plan}\n\nРевью:\n${result.review}`;
       await appendSessionCouncil(active.info, "plan", [
@@ -733,9 +736,11 @@ async function main(): Promise<void> {
         history,
         onEvent: reportEvent,
         approvePlan,
+        requireWorkspaceChange: requiresWorkspaceChange,
+        getWorkspaceMutationCount: () => workspaceMutationCount,
       });
-      if (isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
-        throw new Error("Team coder finished without modifying the workspace.");
+      if (requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
+        throw new Error("Coder команды завершил работу, не изменив файлы проекта.");
       }
       const content = `${result.content}\n\nReview:\n${result.review}`;
       history = [...history, { role: "user", content: task }, { role: "assistant", content }];
@@ -744,11 +749,20 @@ async function main(): Promise<void> {
     }
     const role = mode === "direct" ? "coder" : "orchestrator";
     const mutationsBefore = workspaceMutationCount;
-    const result = await runAgent({ role, task, config, toolContext: context, history, onEvent: reportEvent });
-    if (role === "coder" && isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
-      throw new Error("Coder finished without modifying the workspace.");
+    let result = await runAgent({ role, task, config, toolContext: context, history, onEvent: reportEvent });
+    if (role === "coder" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
+      reportEvent({ type: "progress", role: "coder", detail: "Coder вернул текст без изменений. Повторяю запуск с обязательной записью файлов." });
+      result = await runAgent({
+        role: "coder",
+        task: `${task}\n\nThe previous response did not modify the workspace. Use the workspace write tools now, complete the requested changes, and run relevant checks. Do not return code blocks as a substitute for tool calls.\n\nPREVIOUS RESPONSE:\n${result.content}`,
+        config,
+        toolContext: context,
+        history,
+        onEvent: reportEvent,
+      });
+      if (workspaceMutationCount === mutationsBefore) throw new Error("Coder дважды завершил работу, не изменив файлы проекта.");
     }
-    if (role === "orchestrator" && isImplementationRequest(task) && workspaceMutationCount === mutationsBefore) {
+    if (role === "orchestrator" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
       reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because the workspace was not modified." });
       const coder = await runAgent({
         role: "coder",

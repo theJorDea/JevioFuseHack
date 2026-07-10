@@ -98,6 +98,48 @@ test("council plan selects a plan before one coder changes the workspace", async
   assert.equal(result.content, "coder report");
 });
 
+test("council strips review verdicts from plans and retries a coder that made no edits", async () => {
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+  };
+  let mutations = 0;
+  let coderCalls = 0;
+  let approvedPlan = "";
+  const result = await runCouncilPlan({
+    task: "Сделай сайт",
+    config: structuredClone(DEFAULT_CONFIG),
+    toolContext: context,
+    requireWorkspaceChange: true,
+    getWorkspaceMutationCount: () => mutations,
+    approvePlan: async (plan) => {
+      approvedPlan = plan;
+      return { decision: "approve" };
+    },
+    runner: async (options) => {
+      if (options.role === "judge") return { content: "Concrete plan\n<verdict>PASS</verdict>", turns: 1, history: [] };
+      if (options.role === "coder") {
+        coderCalls += 1;
+        if (coderCalls === 2) mutations += 1;
+        return { content: coderCalls === 1 ? "Code block only" : "Files written", turns: 1, history: [] };
+      }
+      return {
+        content: options.role === "reviewer" ? "<verdict>PASS</verdict>" : "Architect plan",
+        turns: 1,
+        history: [],
+      };
+    },
+  });
+
+  assert.equal(approvedPlan, "Concrete plan");
+  assert.equal(result.plan, "Concrete plan");
+  assert.equal(result.content, "Files written");
+  assert.equal(coderCalls, 2);
+});
+
 test("council planning limits concurrent read-only architects", async () => {
   const context: ToolContext = {
     workspace: process.cwd(),

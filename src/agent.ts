@@ -57,7 +57,7 @@ files, components, tests, or behavior from an agent report alone.`,
 identify agreement, reject unsupported claims, and make one practical decision. Do not edit files. For
 planning, produce the selected implementation plan with explicit files, risks, and verification. For review,
 consolidate only actionable findings and end with exactly one verdict marker: <verdict>PASS</verdict> or
-<verdict>FIX</verdict>.`,
+<verdict>FIX</verdict>. Never emit a verdict marker for a planning task.`,
   compactor: `You are a context compaction agent. Produce a dense, factual continuation summary for
 another coding agent. Do not use tools, continue the task, propose new work, or address the user. Preserve
 exact paths, commands, decisions, constraints, observed failures, verification results, and remaining work.

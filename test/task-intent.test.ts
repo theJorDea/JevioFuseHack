@@ -8,3 +8,14 @@ test("detects implementation requests in English and Russian", () => {
   assert.equal(isImplementationRequest("Замени картинки и обнови стили"), true);
   assert.equal(isImplementationRequest("Объясни архитектуру проекта"), false);
 });
+
+test("uses session context for short implementation continuations", () => {
+  const history = [
+    { role: "user" as const, content: "Сделай современный сайт по продаже тапков" },
+    { role: "assistant" as const, content: "Ошибка: файлы не были изменены." },
+  ];
+
+  assert.equal(isImplementationRequest("давай делай", history), true);
+  assert.equal(isImplementationRequest("давай дальше", history), true);
+  assert.equal(isImplementationRequest("давай дальше"), false);
+});
