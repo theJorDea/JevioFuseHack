@@ -110,12 +110,18 @@ export interface ToolContext {
   codeIndex?: CodeIndexConfig;
   confirm(message: string): Promise<boolean>;
   askUser?: (question: string, options: AskUserOption[]) => Promise<string>;
+  updateTodos?: (items: TodoItem[]) => void;
   delegate?: (role: Exclude<RoleName, "orchestrator">, task: string) => Promise<string>;
 }
 
 export interface AskUserOption {
   label: string;
   description?: string;
+}
+
+export interface TodoItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
 }
 
 export interface AgentResult {

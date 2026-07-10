@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { pruneOldToolResults } from "../src/agent.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { executeTool, resolveWorkspacePath, toolsForRole } from "../src/tools.ts";
+import { executeTool, resolveWorkspacePath, searchWeb, toolsForRole } from "../src/tools.ts";
 import type { ToolContext } from "../src/types.ts";
 
 async function workspace(t: Parameters<typeof test>[1] extends (arg: infer T) => unknown ? T : never): Promise<string> {
@@ -57,6 +57,7 @@ test("search reports relative paths and line numbers", async (t) => {
 });
 
 test("agents can ask the interactive user a structured question", async () => {
+  let todos: Array<{ content: string; status: string }> = [];
   const context: ToolContext = {
     workspace: process.cwd(),
     skills: [],
@@ -64,6 +65,7 @@ test("agents can ask the interactive user a structured question", async () => {
     autoApproveShell: false,
     confirm: async () => false,
     askUser: async (question, options) => `${question}: ${options[0]?.label}`,
+    updateTodos: (items) => { todos = items; },
   };
   const result = await executeTool("ask_user", {
     question: "Which layout?",
@@ -72,7 +74,22 @@ test("agents can ask the interactive user a structured question", async () => {
   assert.equal(result, "Which layout?: Grid");
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "ask_user"));
   assert.equal(await executeTool("report_progress", { message: "Inspecting the project structure." }, context), "Progress update shown to the user.");
+  assert.match(await executeTool("update_todo", { todos: [{ content: "Inspect files", status: "in_progress" }] }, context), /Inspect files/);
+  assert.deepEqual(todos, [{ content: "Inspect files", status: "in_progress" }]);
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "report_progress"));
+  assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "web_search"));
+});
+
+test("web search parses public RSS results", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async () => new Response(`<?xml version="1.0"?><rss><channel>
+    <item><title><![CDATA[Official docs]]></title><link>https://example.test/docs</link><description><![CDATA[<b>Useful</b> reference]]></description></item>
+  </channel></rss>`);
+  const results = await searchWeb("example", 5);
+  assert.match(results, /Official docs/);
+  assert.match(results, /https:\/\/example\.test\/docs/);
+  assert.match(results, /Useful reference/);
 });
 
 test("root agent can delegate into an isolated specialist", async (t) => {

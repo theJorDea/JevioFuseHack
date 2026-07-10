@@ -113,6 +113,7 @@ export class InteractiveTui {
   private readonly root = new Container();
   private readonly transcript = new Container();
   private readonly header = new Text();
+  private readonly todos = new Text();
   private readonly status = new Text();
   private readonly loader: Loader;
   private readonly editor: Editor;
@@ -139,6 +140,7 @@ export class InteractiveTui {
     this.editor.onSubmit = (input) => void this.handleSubmit(input);
 
     this.root.addChild(this.header);
+    this.root.addChild(this.todos);
     this.root.addChild(new Text(""));
     this.root.addChild(this.transcript);
     this.root.addChild(this.loader);
@@ -171,6 +173,14 @@ export class InteractiveTui {
     await new Promise<void>((resolve) => {
       this.resolveExit = resolve;
     });
+  }
+
+  setTodos(items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>): void {
+    const marker = { pending: "[ ]", in_progress: "[>]", completed: "[x]" } as const;
+    this.todos.setText(items.length
+      ? `${dim("TODO")}\n${items.map((item) => `${item.status === "completed" ? dim(marker[item.status]) : cyan(marker[item.status])} ${item.content}`).join("\n")}\n`
+      : "");
+    this.tui.requestRender();
   }
 
   reportEvent(event: { type: "thinking" | "thinking_delta" | "thinking_done" | "tool" | "progress"; role: string; detail: string }): void {

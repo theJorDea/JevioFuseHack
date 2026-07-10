@@ -306,6 +306,7 @@ async function main(): Promise<void> {
     return /^(y|yes)$/i.test(answer.trim());
   };
   const { config, context } = await makeContext(options, confirm);
+  context.updateTodos = (items) => tui?.setTodos(items);
   context.askUser = async (question, choices) => {
     if (tui) return tui.askUser(question, choices);
     if (!terminal) return "[unavailable: non-interactive run]";

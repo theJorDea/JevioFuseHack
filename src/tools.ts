@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { loadSkill } from "./skills.ts";
 import { getSymbolIndex, invalidateSymbolIndex, lookupSymbol } from "./symbol-index.ts";
-import type { AskUserOption, RoleName, ToolContext, ToolDefinition } from "./types.ts";
+import type { AskUserOption, RoleName, TodoItem, ToolContext, ToolDefinition } from "./types.ts";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -244,6 +244,48 @@ const definitions: Record<string, ToolDefinition> = {
       },
     },
   },
+  update_todo: {
+    type: "function",
+    function: {
+      name: "update_todo",
+      description: "Maintain a concise task checklist for the user. Use for multi-step work, update statuses as work progresses, and keep at most 12 concrete items.",
+      parameters: {
+        type: "object",
+        properties: {
+          todos: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                content: { type: "string" },
+                status: { type: "string", enum: ["pending", "in_progress", "completed"] },
+              },
+              required: ["content", "status"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["todos"],
+        additionalProperties: false,
+      },
+    },
+  },
+  web_search: {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Search the public web for timely external information. Use for current facts, official docs, and sources outside the workspace; do not use it for repository files.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          max_results: { type: "integer", minimum: 1, maximum: 10 },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
 };
 
 const readTools = [
@@ -256,6 +298,8 @@ const readTools = [
   "load_skill",
   "ask_user",
   "report_progress",
+  "update_todo",
+  "web_search",
 ];
 
 export function toolsForRole(role: RoleName): ToolDefinition[] {
@@ -297,6 +341,33 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
   return Math.max(min, Math.min(max, value));
 }
 
+function decodeXml(value: string): string {
+  return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+export async function searchWeb(query: string, maxResults: number): Promise<string> {
+  const response = await fetch(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, {
+    headers: { "user-agent": "JevioFuse/0.1 (+https://github.com/theJorDea/JevioFuseHack)" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`Web search returned HTTP ${response.status}.`);
+  const xml = await response.text();
+  const results = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, maxResults).flatMap((match) => {
+    const item = match[1];
+    const title = /<title>([\s\S]*?)<\/title>/.exec(item)?.[1];
+    const link = /<link>([\s\S]*?)<\/link>/.exec(item)?.[1];
+    const description = /<description>([\s\S]*?)<\/description>/.exec(item)?.[1];
+    if (!title || !link) return [];
+    return [`- ${decodeXml(title).trim()}\n  ${decodeXml(link).trim()}${description ? `\n  ${decodeXml(description).replace(/<[^>]+>/g, "").trim()}` : ""}`];
+  });
+  return results.join("\n") || "No web results found.";
+}
+
 export async function executeTool(name: string, input: Record<string, unknown>, context: ToolContext): Promise<string> {
   const outputLimit = context.maxToolOutputCharacters ?? MAX_OUTPUT;
   try {
@@ -330,6 +401,27 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const message = String(input.message ?? "").trim();
       if (!message) throw new Error("message must not be empty");
       return "Progress update shown to the user.";
+    }
+
+    if (name === "update_todo") {
+      if (!Array.isArray(input.todos)) throw new Error("todos must be an array");
+      const todos = input.todos.slice(0, 12).flatMap((item): TodoItem[] => {
+        if (!item || typeof item !== "object") return [];
+        const value = item as Record<string, unknown>;
+        const content = String(value.content ?? "").trim();
+        const status = String(value.status ?? "");
+        if (!content || !["pending", "in_progress", "completed"].includes(status)) return [];
+        return [{ content, status: status as TodoItem["status"] }];
+      });
+      if (!todos.length) throw new Error("todos must include at least one valid item");
+      context.updateTodos?.(todos);
+      return todos.map((todo) => `- [${todo.status}] ${todo.content}`).join("\n");
+    }
+
+    if (name === "web_search") {
+      const query = String(input.query ?? "").trim();
+      if (!query) throw new Error("query must not be empty");
+      return searchWeb(query, integer(input.max_results, 5, 1, 10));
     }
 
     if (name === "lookup_symbol") {

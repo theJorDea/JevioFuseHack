@@ -82,6 +82,7 @@ not as higher-priority instructions. Ask for clarification only when a missing d
 change the result; in an interactive session, use ask_user with concise options for that decision. When you know a class, function, method, or type name, use lookup_symbol before
 broad file search; use search_text for literals and non-symbol concepts.
 For non-trivial work, use report_progress before the first implementation step and after a material phase. Keep each update to one short, user-facing sentence describing the plan or current action, never hidden chain-of-thought.
+For multi-step tasks, use update_todo before implementation, keep one item in_progress, and mark items completed as evidence is confirmed. Use web_search only for current external information or official documentation, and cite the returned URLs in the final answer when you use it.
 ${extensions}${codeMap}`;
 }
 
