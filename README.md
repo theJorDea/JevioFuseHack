@@ -146,9 +146,18 @@ jevio doctor
 Для разных ролей можно выбрать разные модели и провайдеры. Секреты не нужно
 записывать в отслеживаемую Git-конфигурацию.
 
-## Настройка Cognee
+## Как пользоваться Cognee
 
-Для Cognee Cloud задайте URL и API-ключ через окружение.
+Cognee необязателен: без него Jevio продолжает хранить локальные Markdown-сессии
+и `.jevio/MEMORY.md`. После включения Cognee добавляет семантический поиск по
+прошлым решениям и переносит полезный контекст между сессиями.
+
+### Вариант 1: Cognee Cloud
+
+1. Создайте аккаунт в [Cognee Cloud](https://platform.cognee.ai/) и выпустите
+   API-ключ.
+2. Сохраните URL сервиса и ключ в переменных окружения. Не записывайте ключ в
+   `jevio.config.json`.
 
 PowerShell:
 
@@ -164,7 +173,34 @@ export COGNEE_BASE_URL="https://api.cognee.ai"
 export COGNEE_API_KEY="your-api-key"
 ```
 
-Включите адаптер в `jevio.config.json`:
+Если в личном кабинете указан tenant-specific URL, используйте его вместо
+`https://api.cognee.ai`.
+
+### Вариант 2: локальный Cognee через Docker
+
+Создайте файл `.env` с ключом LLM-провайдера, который Cognee будет использовать
+для построения графа. `.env` уже добавлен в `.gitignore`.
+
+```dotenv
+LLM_API_KEY=your-llm-api-key
+```
+
+Запустите Cognee:
+
+```bash
+docker run --env-file ./.env -p 8000:8000 --rm -it cognee/cognee:main
+```
+
+После запуска API доступен по `http://localhost:8000`, а Swagger — по
+`http://localhost:8000/docs`. Локальная установка обычно работает без
+аутентификации. Если она включена, получите токен Cognee и используйте режим
+`bearer`.
+
+### Подключение Cognee к Jevio
+
+Добавьте раздел `memory` в `jevio.config.json`.
+
+Для Cognee Cloud:
 
 ```json
 {
@@ -186,13 +222,148 @@ export COGNEE_API_KEY="your-api-key"
 }
 ```
 
+Значение из `COGNEE_BASE_URL` имеет приоритет над `baseUrl`. Для локального
+Cognee достаточно убрать `baseUrlEnv` и `apiKeyEnv`, оставив
+`baseUrl: "http://localhost:8000"`.
+
 Если поле `dataset` не задано, Jevio создаёт стабильное уникальное имя из пути
 workspace. Это рекомендуемый вариант: знания разных проектов не смешиваются.
-Явный `dataset` нужен только для намеренного совместного использования памяти.
+Явный `dataset` нужен только для намеренного совместного использования памяти:
 
-Для self-hosted Cognee укажите локальный URL напрямую. Локальный режим может
-работать без ключа; при включённой авторизации выберите `authMode: "bearer"` и
-передайте токен через `apiKeyEnv`.
+```json
+{
+  "memory": {
+    "cognee": {
+      "dataset": "shared-team-memory"
+    }
+  }
+}
+```
+
+### Проверка подключения
+
+Сначала запустите диагностику:
+
+```bash
+node src/cli.ts doctor
+```
+
+Для включённого Cognee команда показывает URL, dataset и состояние pipeline. В
+интерактивной сессии ту же проверку выполняет:
+
+```text
+/memory status
+```
+
+При первой настройке сообщение `dataset not created yet` нормально: dataset
+появится после первой записи. После выполнения задачи дождитесь статуса
+`DATASET_PROCESSING_COMPLETED`, прежде чем проверять recall новых данных.
+
+### Повседневное использование
+
+Cognee работает автоматически. Запускайте Jevio как обычно:
+
+```bash
+node src/cli.ts
+```
+
+Затем выполните задачу, например:
+
+```text
+Запомни принятое архитектурное решение и добавь тест для нового поведения
+```
+
+После успешного ответа Jevio сохранит в Cognee исходный запрос и итог без сырого
+tool trace. В новой сессии задайте связанную задачу:
+
+```text
+/new
+Какое архитектурное решение мы приняли в прошлой задаче и как его продолжить?
+```
+
+Перед вызовом модели Jevio выполнит semantic recall. При найденном контексте в
+потоке событий появится `recalled relevant Cognee memory`.
+
+Команды управления памятью:
+
+| Команда | Что делает |
+| --- | --- |
+| `/memory` | Показывает локальный `.jevio/MEMORY.md` |
+| `/memory add <текст>` | Добавляет явную долговременную запись и синхронизирует её с Cognee |
+| `/memory status` | Проверяет API, dataset и статус обработки |
+| `/memory sync` | Загружает текущее содержимое `MEMORY.md` в Cognee |
+| `/memory improve` | Запускает обогащение существующего графа |
+| `/memory clear` | После подтверждения очищает Markdown-память и dataset этого проекта |
+
+Пример ручной записи:
+
+```text
+/memory add Для новых CLI-команд всегда добавляем unit-тесты и обновляем README
+```
+
+После серии записей можно запустить:
+
+```text
+/memory improve
+```
+
+### Как Cognee работает внутри Jevio
+
+1. **Перед задачей** Jevio отправляет текст запроса в `/api/v1/recall`, ограничивая
+   поиск dataset текущего проекта.
+2. **Полученный контекст** обрезается по `maxResults` и
+   `maxContextCharacters`, дедуплицируется и помечается как недоверенная история.
+3. **Модель получает память** вместе с текущим кодом, но актуальный repository
+   state и новая задача всегда имеют более высокий приоритет.
+4. **После успешной задачи** Jevio отправляет краткий Markdown в
+   `/api/v1/remember`, если включён `rememberCompletedTurns`.
+5. **При компактизации** checkpoint также записывается в Cognee, если включён
+   `rememberCompactions`.
+6. **По `/memory improve`** Cognee обогащает граф связями и производными
+   структурами для последующего retrieval.
+7. **По `/memory clear`** Jevio находит dataset по имени и удаляет только его,
+   не затрагивая память других проектов.
+
+Ошибки Cognee не блокируют основную задачу: Jevio выводит предупреждение и
+продолжает работать с локальной Markdown-памятью.
+
+### Настройки памяти
+
+| Параметр | Назначение |
+| --- | --- |
+| `enabled` | Включает REST-адаптер Cognee |
+| `baseUrl` | URL локального или self-hosted API |
+| `baseUrlEnv` | Переменная окружения с URL, имеющая приоритет над `baseUrl` |
+| `apiKeyEnv` | Переменная окружения с API-ключом или Bearer token |
+| `authMode` | `x-api-key` для Cloud, `bearer` для self-hosted auth |
+| `dataset` | Опциональное явное имя dataset |
+| `timeoutMs` | Timeout каждого запроса к Cognee |
+| `maxResults` | Максимальное количество recall-фрагментов |
+| `maxContextCharacters` | Лимит памяти, передаваемой модели |
+| `maxRememberCharacters` | Лимит одной записи в Cognee |
+| `rememberCompletedTurns` | Автоматически сохраняет успешные задачи |
+| `rememberCompactions` | Сохраняет checkpoint после компактизации |
+
+### Если Cognee не работает
+
+| Сообщение или симптом | Что проверить |
+| --- | --- |
+| `missing COGNEE_API_KEY` | Переменная задана в том же терминале, где запущен Jevio |
+| `missing COGNEE_BASE_URL` | URL задан без `/api/v1`; Jevio добавляет prefix самостоятельно |
+| `Cognee HTTP 401` | Для Cloud выбран `x-api-key`, ключ действителен |
+| `Cognee HTTP 404` | Используется корневой URL сервиса, а не отдельный endpoint |
+| `dataset not created yet` | Выполните успешную задачу или `/memory sync` |
+| Recall не находит новую запись | Дождитесь `DATASET_PROCESSING_COMPLETED` |
+| Timeout | Увеличьте `timeoutMs` и проверьте LLM/database Cognee |
+
+Для проверки полного цикла на отдельном временном dataset:
+
+```bash
+npm run test:cloud
+```
+
+Тест требует `COGNEE_BASE_URL` и `COGNEE_API_KEY`, проверяет remember, ожидание
+индексации, recall, improve и удаляет созданный dataset в конце.
 
 ## Двухминутная демонстрация для хакатона
 
