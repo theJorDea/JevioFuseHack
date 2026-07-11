@@ -3,7 +3,39 @@ import test from "node:test";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { CogneeMemory } from "../src/memory.ts";
 
-test("Cognee Cloud supports the complete Jevio memory lifecycle", { timeout: 240_000 }, async (t) => {
+async function waitForPipeline(memory: CogneeMemory, attempts = 90): Promise<string | undefined> {
+  let pipelineStatus: string | undefined;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    pipelineStatus = (await memory.status()).pipelineStatus;
+    if (pipelineStatus === "DATASET_PROCESSING_COMPLETED" || pipelineStatus === "DATASET_PROCESSING_ERRORED") break;
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  return pipelineStatus;
+}
+
+async function waitForRecall(
+  memory: CogneeMemory,
+  query: string,
+  marker: string,
+  sessionId?: string,
+  attempts = 30,
+): Promise<string> {
+  let recalled = "";
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      recalled = await memory.recall(query, sessionId);
+      if (recalled.includes(marker)) return recalled;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  if (!recalled && lastError) throw lastError;
+  return recalled;
+}
+
+test("Cognee Cloud supports permanent and session-aware Jevio memory", { timeout: 420_000 }, async (t) => {
   if (!process.env.COGNEE_BASE_URL || !process.env.COGNEE_API_KEY) {
     t.skip("COGNEE_BASE_URL and COGNEE_API_KEY are required");
     return;
@@ -18,6 +50,8 @@ test("Cognee Cloud supports the complete Jevio memory lifecycle", { timeout: 240
   config.timeoutMs = 60_000;
   const memory = new CogneeMemory(config, process.cwd());
   const marker = `JEVIO_INTEGRATION_${Date.now()}`;
+  const sessionMarker = `JEVIO_SESSION_${Date.now()}`;
+  const sessionId = `jevio-session-${Date.now()}`;
   let rememberAccepted = false;
 
   try {
@@ -28,17 +62,35 @@ test("Cognee Cloud supports the complete Jevio memory lifecycle", { timeout: 240
     );
     rememberAccepted = true;
 
-    let pipelineStatus: string | undefined;
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      pipelineStatus = (await memory.status()).pipelineStatus;
-      if (pipelineStatus === "DATASET_PROCESSING_COMPLETED") break;
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-    }
+    const pipelineStatus = await waitForPipeline(memory);
     assert.equal(pipelineStatus, "DATASET_PROCESSING_COMPLETED");
 
-    const recalled = await memory.recall(`What is the integration marker ${marker}?`);
+    const recalled = await waitForRecall(memory, `Return the exact integration marker ${marker}.`, marker);
     assert.match(recalled, new RegExp(marker));
-    await memory.improve();
+
+    await memory.remember(
+      `Session marker ${sessionMarker}. This decision must survive a Jevio session boundary.`,
+      sessionId,
+      "session-integration.md",
+    );
+    const sessionRecall = await waitForRecall(
+      memory,
+      `Return the exact session marker ${sessionMarker}.`,
+      sessionMarker,
+      sessionId,
+      15,
+    );
+    assert.match(sessionRecall, new RegExp(sessionMarker));
+
+    await memory.improve([sessionId]);
+    const bridgedRecall = await waitForRecall(
+      memory,
+      `Return the exact session marker ${sessionMarker}.`,
+      sessionMarker,
+      `${sessionId}-new`,
+      60,
+    );
+    assert.match(bridgedRecall, new RegExp(sessionMarker));
   } finally {
     let removed = false;
     const cleanupAttempts = rememberAccepted ? 12 : 1;

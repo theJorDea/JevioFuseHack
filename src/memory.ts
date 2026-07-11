@@ -217,10 +217,30 @@ export class CogneeMemory {
 
   async remember(content: string, sessionId?: string, filename = "memory.md"): Promise<void> {
     if (!this.enabled || !content.trim()) return;
+    const boundedContent = content.trim().slice(0, Math.floor(this.config.maxRememberCharacters));
+    const normalizedSessionId = this.config.sessionAware ? sessionId?.trim() : undefined;
+    if (normalizedSessionId) {
+      await this.request("/api/v1/remember/entry", {
+        method: "POST",
+        headers: this.headers(true),
+        body: JSON.stringify({
+          entry: {
+            type: "qa",
+            question: `Jevio memory entry: ${filename}`,
+            answer: boundedContent,
+            context: "",
+            used_graph_element_ids: {},
+          },
+          dataset_name: this.dataset,
+          session_id: normalizedSessionId,
+        }),
+      });
+      return;
+    }
+
     const form = new FormData();
-    form.append("data", new Blob([content.trim().slice(0, Math.floor(this.config.maxRememberCharacters))], { type: "text/markdown" }), filename);
+    form.append("data", new Blob([boundedContent], { type: "text/markdown" }), filename);
     form.append("datasetName", this.dataset);
-    if (this.config.sessionAware && sessionId?.trim()) form.append("session_id", sessionId.trim());
     form.append("run_in_background", "true");
     await this.request("/api/v1/remember", { method: "POST", headers: this.headers(), body: form });
   }

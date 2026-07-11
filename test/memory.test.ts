@@ -54,14 +54,16 @@ test("Cognee remember uploads Markdown into the project dataset", async () => {
 test("Cognee session-aware memory stores the session and combines session with graph recall", async () => {
   const options = config();
   options.sessionAware = true;
-  let remembered: FormData | undefined;
+  let rememberUrl = "";
+  let remembered: Record<string, unknown> | undefined;
   const recallBodies: Array<Record<string, unknown>> = [];
-  const memory = new CogneeMemory(options, process.cwd(), async (_input, init) => {
-    if (init?.body instanceof FormData) {
-      remembered = init.body;
+  const memory = new CogneeMemory(options, process.cwd(), async (input, init) => {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    if (String(input).endsWith("/remember/entry")) {
+      rememberUrl = String(input);
+      remembered = body;
       return new Response("{}", { status: 200 });
     }
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     recallBodies.push(body);
     return new Response(JSON.stringify({
       results: [{ text: body.datasets ? "graph decision" : "current session" }],
@@ -69,7 +71,18 @@ test("Cognee session-aware memory stores the session and combines session with g
   });
 
   await memory.remember("session decision", "session-3", "session.md");
-  assert.equal(remembered?.get("session_id"), "session-3");
+  assert.equal(rememberUrl, "http://localhost:8000/api/v1/remember/entry");
+  assert.deepEqual(remembered, {
+    entry: {
+      type: "qa",
+      question: "Jevio memory entry: session.md",
+      answer: "session decision",
+      context: "",
+      used_graph_element_ids: {},
+    },
+    dataset_name: "test-project",
+    session_id: "session-3",
+  });
   assert.equal(await memory.recall("what changed?", "session-3"), "current session\n\n---\n\ngraph decision");
   assert.deepEqual(recallBodies[0], {
     query: "what changed?",
