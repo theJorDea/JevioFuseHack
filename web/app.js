@@ -207,10 +207,12 @@ function setLive(text) {
     if (!text) {
       els.live.classList.add("hidden");
       if (els.liveText) els.liveText.textContent = "";
+      els.live.removeAttribute("title");
     }
     return;
   }
   els.live.classList.remove("hidden");
+  els.live.title = clean;
   if (els.liveText) els.liveText.textContent = clean;
   else els.live.textContent = clean;
   els.live.scrollTop = els.live.scrollHeight;
