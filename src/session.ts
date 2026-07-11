@@ -341,6 +341,25 @@ export async function appendProjectMemory(workspace: string, content: string): P
   return file;
 }
 
+export async function replaceProjectMemory(
+  workspace: string,
+  previousContent: string,
+  replacement: string,
+  supersededRecordId: string,
+): Promise<string> {
+  const normalizedReplacement = replacement.trim();
+  if (!normalizedReplacement) throw new Error("Replacement memory must not be empty.");
+  const file = memoryPath(workspace);
+  const document = await readFullProjectMemory(workspace);
+  const previous = previousContent.trim();
+  if (previous && document.includes(previous)) {
+    const annotated = `${normalizedReplacement}\n\n> Replaces memory record \`${supersededRecordId}\`.`;
+    await writeFile(file, document.replace(previous, annotated), "utf8");
+    return file;
+  }
+  return appendProjectMemory(workspace, `${normalizedReplacement}\n\n> Replaces memory record \`${supersededRecordId}\`.`);
+}
+
 export async function clearProjectMemory(workspace: string): Promise<string> {
   const file = memoryPath(workspace);
   await mkdir(path.dirname(file), { recursive: true });

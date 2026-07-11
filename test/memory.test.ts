@@ -211,6 +211,28 @@ test("Cognee recall preserves explainable source metadata without changing model
   assert.equal(memory.lastRecall?.query, "why?");
 });
 
+test("Cognee recall removes superseded tombstones and excluded provenance records", async () => {
+  const memory = new CogneeMemory(config(), process.cwd(), async () => new Response(JSON.stringify([
+    { text: [
+      "CURRENT decision uses 60 seconds.",
+      "SUPERSEDED decision used 10 seconds.",
+      "Record old-record-id contains obsolete context.",
+    ].join("\n") },
+  ]), { status: 200 }));
+  const recalled = await memory.recall("timeout", undefined, ["old-record-id"]);
+  assert.equal(recalled, "CURRENT decision uses 60 seconds.");
+  assert.equal(memory.lastRecall?.items[0]?.text, "CURRENT decision uses 60 seconds.");
+});
+
+test("Cognee recall removes stale clauses from generated graph summaries", async () => {
+  const memory = new CogneeMemory(config(), process.cwd(), async () => new Response(JSON.stringify([
+    { text: "The current suite contains 144 tests, superseding the previous count of 83 tests." },
+  ]), { status: 200 }));
+  const recalled = await memory.recall("current test count");
+  assert.equal(recalled, "The current suite contains 144 tests.");
+  assert.doesNotMatch(recalled, /83/);
+});
+
 test("Cognee forget deletes only the matching project dataset", async () => {
   const urls: string[] = [];
   const memory = new CogneeMemory(config(), process.cwd(), async (input) => {

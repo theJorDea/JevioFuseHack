@@ -54,6 +54,17 @@ function responseItems(value: unknown, defaults: Pick<MemoryRecallItem, "source"
   return [];
 }
 
+export function sanitizeRecalledText(value: string, supersededIds: Iterable<string> = []): string {
+  const ids = [...supersededIds].map((id) => id.trim()).filter(Boolean);
+  return value.split(/\r?\n/).map((line) => line.replace(
+    /,?\s*superseding\s+(?:the\s+)?(?:previous|earlier|older|old)\b[^.;]*(?=[.;]|$)/gi,
+    "",
+  )).filter((line) => {
+    if (/\bSUPERSEDED\b/i.test(line)) return false;
+    return !ids.some((id) => line.includes(id));
+  }).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function datasetRecords(value: unknown): Array<{ id: string; name: string }> {
   const records: Array<{ id: string; name: string }> = [];
   const visit = (current: unknown): void => {
@@ -165,7 +176,7 @@ export class CogneeMemory {
     }
   }
 
-  async recall(query: string, sessionId?: string): Promise<string> {
+  async recall(query: string, sessionId?: string, supersededIds: Iterable<string> = []): Promise<string> {
     const normalizedQuery = query.trim();
     this.latestRecall = undefined;
     if (!this.enabled || !normalizedQuery) return "";
@@ -252,8 +263,8 @@ export class CogneeMemory {
       ...(sessionId?.trim() ? { sessionId: sessionId.trim() } : {}),
     }));
     const seen = new Set<string>();
-    const unique = items.filter((item) => {
-      if (seen.has(item.text)) return false;
+    const unique = items.map((item) => ({ ...item, text: sanitizeRecalledText(item.text, supersededIds) })).filter((item) => {
+      if (!item.text || seen.has(item.text)) return false;
       seen.add(item.text);
       return true;
     }).slice(0, Math.floor(this.config.maxResults));
@@ -334,7 +345,13 @@ export function completedTurnMemory(task: string, answer: string, provenance?: M
     `- Repository HEAD: ${provenance.repositoryHead ? `\`${inlineMetadata(provenance.repositoryHead)}\`` : "unavailable"}`,
     `- Working tree files: ${provenance.workingTreeFiles.length ? provenance.workingTreeFiles.map((file) => `\`${inlineMetadata(file)}\``).join(", ") : "none"}`,
     `- Verification: ${provenance.verifications.length ? provenance.verifications.map((item) => `\`${inlineMetadata(item.command)}\` (exit ${item.exitCode})`).join("; ") : "not recorded"}`,
+    ...(provenance.supersedes?.length ? [`- Supersedes: ${provenance.supersedes.map((id) => `\`${inlineMetadata(id)}\``).join(", ")}`] : []),
     "",
   ].join("\n") : "";
   return `# Completed Jevio task\n\n${metadata}## User request\n\n${task.trim()}\n\n## Result\n\n${answer.trim()}`;
+}
+
+export function explicitMemoryDocument(content: string, provenance?: MemoryProvenanceRecord): string {
+  return completedTurnMemory("Explicit project memory", content, provenance)
+    .replace("# Completed Jevio task", "# Explicit Jevio project memory");
 }

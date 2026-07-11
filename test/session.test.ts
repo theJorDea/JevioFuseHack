@@ -16,6 +16,7 @@ import {
   loadProjectMemory,
   loadLatestCouncilReview,
   loadSession,
+  replaceProjectMemory,
   renameSession,
   saveSessionTodos,
 } from "../src/session.ts";
@@ -94,6 +95,15 @@ test("project memory is readable Markdown and can be cleared", async (t) => {
   assert.match(await loadProjectMemory(root), /^# Jevio Project Memory/);
   await clearProjectMemory(root);
   assert.equal(await loadProjectMemory(root), "# Jevio Project Memory\n");
+});
+
+test("project memory replacement removes the stale text and records its provenance link", async (t) => {
+  const root = await workspace(t);
+  await appendProjectMemory(root, "Use timeout 10 seconds.");
+  const file = await replaceProjectMemory(root, "Use timeout 10 seconds.", "Use timeout 60 seconds.", "old-record");
+  const document = await readFile(file, "utf8");
+  assert.doesNotMatch(document, /10 seconds/);
+  assert.match(document, /60 seconds[\s\S]*Replaces memory record `old-record`/);
 });
 
 test("memory append preserves content beyond the read limit", async (t) => {

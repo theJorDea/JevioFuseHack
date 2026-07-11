@@ -18,12 +18,13 @@ import { formatCritiqueAppendix, runCritique, type CritiqueResult } from "./crit
 import { dreamStatus, runDream } from "./dream.ts";
 import { generateIdeas } from "./ideas.ts";
 import { formatKairosReport, runKairos, shouldAutoKairos } from "./kairos.ts";
-import { CogneeMemory, completedTurnMemory } from "./memory.ts";
+import { CogneeMemory, completedTurnMemory, explicitMemoryDocument } from "./memory.ts";
 import {
  appendMemoryProvenance,
  clearMemoryProvenance,
  formatMemoryExplanation,
  listMemoryProvenance,
+ supersededMemoryIds,
 } from "./memory-journal.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import { createPlanDocument, writePlanDocument, type PlanDocument } from "./plan.ts";
@@ -43,6 +44,7 @@ import {
  loadLatestCouncilReview,
  loadSession,
  NEW_SESSION_TITLE,
+ replaceProjectMemory,
  renameSession,
  saveSessionTodos,
  type LoadedSession,
@@ -599,6 +601,7 @@ async function main(): Promise<void> {
  request: string,
  result: string,
  verifications: VerificationRecord[],
+ supersedes: string[] = [],
  ) => {
  try {
  return await appendMemoryProvenance(options.workspace, {
@@ -608,6 +611,7 @@ async function main(): Promise<void> {
  request,
  result,
  verifications,
+ supersedes,
  });
  } catch (error) {
  reportEvent({ type: "thinking", role: "orchestrator", detail: `Memory provenance skipped: ${(error as Error).message}` });
@@ -1018,7 +1022,8 @@ async function main(): Promise<void> {
  context.retrievedMemory = undefined;
  if (cogneeMemory.enabled) {
  try {
- context.retrievedMemory = await cogneeMemory.recall(task, active.info.id);
+ const records = await listMemoryProvenance(options.workspace, 500);
+ context.retrievedMemory = await cogneeMemory.recall(task, active.info.id, supersededMemoryIds(records));
  if (context.retrievedMemory) reportEvent({ type: "thinking", role: "orchestrator", detail: "recalled relevant Cognee memory" });
  } catch (error) {
  reportEvent({ type: "thinking", role: "orchestrator", detail: `Cognee recall skipped: ${(error as Error).message}` });
@@ -1715,9 +1720,31 @@ ${agentTask}`;
  if (!entry) return { output: "Использование: /memory add <текст>\nПример: /memory add Предпочитаем TypeScript strict" };
  const file = await appendProjectMemory(options.workspace, entry);
  context.projectMemory = await loadProjectMemory(options.workspace);
- await recordMemoryProvenance("explicit_memory", entry, "Stored in project memory.", []);
- const warning = await rememberCognee(`# Explicit project memory\n\n${entry}`, `explicit-${Date.now()}.md`, false);
+ const provenance = await recordMemoryProvenance("explicit_memory", entry, "Stored in project memory.", []);
+ const warning = await rememberCognee(explicitMemoryDocument(entry, provenance), `explicit-${Date.now()}.md`, false);
  return { output: `Memory updated: ${file}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
+ }
+ if (sub === "replace") {
+ const requestedId = parts[1]?.trim() ?? "";
+ const replacement = parts.slice(2).join(" ").trim();
+ if (!requestedId || !replacement) return { output: "Использование: /memory replace <record-id> <новый текст>" };
+ const records = await listMemoryProvenance(options.workspace, 500);
+ const matches = records.filter((record) => record.id === requestedId || record.id.startsWith(requestedId));
+ if (!matches.length) return { output: `Memory record '${requestedId}' не найден.` };
+ if (matches.length > 1) return { output: `Memory record '${requestedId}' неоднозначен. Укажи более длинный ID.` };
+ const target = matches[0];
+ if (supersededMemoryIds(records).includes(target.id)) return { output: `Memory record '${target.id}' уже заменён.` };
+ const file = await replaceProjectMemory(options.workspace, target.request, replacement, target.id);
+ context.projectMemory = await loadProjectMemory(options.workspace);
+ const provenance = await recordMemoryProvenance(
+ "explicit_memory",
+ replacement,
+ `Supersedes memory record ${target.id}.`,
+ [],
+ [target.id],
+ );
+ const warning = await rememberCognee(explicitMemoryDocument(replacement, provenance), `replacement-${Date.now()}.md`, false);
+ return { output: `Memory record ${target.id} replaced: ${file}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
  }
  if (sub === "clear") {
  if (!(await confirm("Очистить память проекта?"))) return { output: "Очистка памяти отменена." };

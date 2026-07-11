@@ -21,6 +21,7 @@ export interface MemoryProvenanceRecord {
   repositoryHead?: string;
   workingTreeFiles: string[];
   verifications: VerificationRecord[];
+  supersedes?: string[];
 }
 
 function journalPath(workspace: string): string {
@@ -58,7 +59,10 @@ function boundedVerifications(records: VerificationRecord[]): VerificationRecord
 
 export async function appendMemoryProvenance(
   workspace: string,
-  input: Pick<MemoryProvenanceRecord, "kind" | "sessionId" | "request" | "result" | "verifications"> & { projectId?: string },
+  input: Pick<MemoryProvenanceRecord, "kind" | "sessionId" | "request" | "result" | "verifications"> & {
+    projectId?: string;
+    supersedes?: string[];
+  },
 ): Promise<MemoryProvenanceRecord> {
   const [repositoryHead, status] = await Promise.all([
     gitOutput(workspace, ["rev-parse", "HEAD"]),
@@ -75,6 +79,7 @@ export async function appendMemoryProvenance(
     ...(repositoryHead ? { repositoryHead } : {}),
     workingTreeFiles: changedFiles(status),
     verifications: boundedVerifications(input.verifications),
+    ...(input.supersedes?.length ? { supersedes: [...new Set(input.supersedes.map((id) => id.trim()).filter(Boolean))] } : {}),
   };
   const file = journalPath(workspace);
   await mkdir(path.dirname(file), { recursive: true });
@@ -92,10 +97,14 @@ export async function listMemoryProvenance(workspace: string, limit = 5): Promis
       } catch {
         return [];
       }
-    }).slice(0, Math.max(1, Math.min(20, Math.floor(limit))));
+    }).slice(0, Math.max(1, Math.min(500, Math.floor(limit))));
   } catch {
     return [];
   }
+}
+
+export function supersededMemoryIds(records: MemoryProvenanceRecord[]): string[] {
+  return [...new Set(records.flatMap((record) => record.supersedes ?? []).filter(Boolean))];
 }
 
 export async function clearMemoryProvenance(workspace: string): Promise<void> {
@@ -140,6 +149,10 @@ export function formatMemoryExplanation(
     recall = `Последний recall:\n${header}\n\n${fragments}`;
   }
   if (!records.length) return `${recall}\n\nЛокальный журнал provenance пуст.`;
+  const replacementById = new Map<string, string>();
+  records.forEach((record) => record.supersedes?.forEach((id) => {
+    if (!replacementById.has(id)) replacementById.set(id, record.id);
+  }));
   const entries = records.map((record, index) => {
     const files = record.workingTreeFiles.length ? record.workingTreeFiles.join(", ") : "нет";
     const verification = record.verifications.length
@@ -152,6 +165,8 @@ export function formatMemoryExplanation(
       `   HEAD: ${record.repositoryHead ?? "недоступен"}`,
       `   files: ${files}`,
       `   verification: ${verification}`,
+      `   status: ${replacementById.has(record.id) ? `superseded by ${replacementById.get(record.id)}` : "active"}`,
+      ...(record.supersedes?.length ? [`   supersedes: ${record.supersedes.join(", ")}`] : []),
       `   request: ${oneLine(record.request, 300)}`,
     ].join("\n");
   });

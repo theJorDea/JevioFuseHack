@@ -52,6 +52,12 @@ session ID, score и timestamp, когда эти поля вернул Cognee. 
 очищает журнал вместе с Markdown-памятью и dataset Cognee, но сохраняет identity
 проекта.
 
+Связь `supersedes` в provenance-журнале является append-only tombstone: новая
+запись указывает ID заменённых записей. CLI-команда `/memory replace` обновляет
+локальный `MEMORY.md`, сохраняет replacement в Cognee и не переписывает историю
+журнала. Перед model prompt CLI и Web host фильтруют tombstone-строки и recall-
+фрагменты, содержащие superseded record ID.
+
 src/compaction.ts оценивает размер истории, вызывает отдельную роль compactor и
 строит новый model-visible context из summary и нескольких последних сообщений.
 Checkpoint дописывается в Markdown без удаления исходного transcript. Порог

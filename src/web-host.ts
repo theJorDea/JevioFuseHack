@@ -3,7 +3,7 @@ import { runAgent, type AgentEvent, type AgentOptions } from "./agent.ts";
 import { loadConfig, setAllRolesModelConfig, setDefaultProviderConfig } from "./config.ts";
 import { listProviderModels } from "./setup.ts";
 import { CogneeMemory, completedTurnMemory } from "./memory.ts";
-import { appendMemoryProvenance, type MemoryProvenanceRecord } from "./memory-journal.ts";
+import { appendMemoryProvenance, listMemoryProvenance, supersededMemoryIds, type MemoryProvenanceRecord } from "./memory-journal.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import { createPlanDocument, writePlanDocument } from "./plan.ts";
 import { cogneeConfigForProject, loadProjectIdentity } from "./project-identity.ts";
@@ -359,7 +359,8 @@ export class WebHost {
     let retrievedMemory: string | undefined;
     if (cognee.enabled) {
       try {
-        retrievedMemory = await cognee.recall(task, this.active.info.id);
+        const records = await listMemoryProvenance(this.workspace, 500);
+        retrievedMemory = await cognee.recall(task, this.active.info.id, supersededMemoryIds(records));
       } catch {
         // optional
       }

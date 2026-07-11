@@ -8,6 +8,7 @@ import {
   clearMemoryProvenance,
   formatMemoryExplanation,
   listMemoryProvenance,
+  supersededMemoryIds,
 } from "../src/memory-journal.ts";
 
 async function workspace(t: { after(callback: () => unknown): void }): Promise<string> {
@@ -51,6 +52,21 @@ test("memory provenance records observable repository and verification data", as
     }],
   });
   assert.match(explained, /Запрос: why\?[\s\S]*source=graph[\s\S]*score=0\.87[\s\S]*timestamp=2026-07-10/);
+
+  const replacement = await appendMemoryProvenance(root, {
+    kind: "explicit_memory",
+    projectId: "project-1",
+    sessionId: "session-1",
+    request: "Use the new decision",
+    result: "Supersedes the old record.",
+    verifications: [],
+    supersedes: [record.id],
+  });
+  const records = await listMemoryProvenance(root, 500);
+  assert.deepEqual(supersededMemoryIds(records), [record.id]);
+  const replacementExplanation = formatMemoryExplanation(records);
+  assert.match(replacementExplanation, new RegExp(`supersedes: ${record.id}`));
+  assert.match(replacementExplanation, new RegExp(`superseded by ${replacement.id}`));
 
   await clearMemoryProvenance(root);
   assert.deepEqual(await listMemoryProvenance(root), []);

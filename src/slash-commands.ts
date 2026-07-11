@@ -123,11 +123,12 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   {
     name: "memory",
     description: "Память проекта (MEMORY.md / Cognee)",
-    argumentHint: "[add|status|explain|sync|improve|clear|show]",
+    argumentHint: "[add|replace|status|explain|sync|improve|clear|show]",
     group: "memory",
     subcommands: [
       { name: "show", description: "Показать MEMORY.md" },
       { name: "add", description: "Добавить запись", argumentHint: "<текст>" },
+      { name: "replace", description: "Заменить устаревшую запись", argumentHint: "<record-id> <текст>" },
       { name: "status", description: "Markdown + Cognee status" },
       { name: "explain", description: "Последний recall / provenance" },
       { name: "sync", description: "MEMORY.md → Cognee" },
