@@ -12,6 +12,8 @@ const els = {
   send: $("send"),
   form: $("composer"),
   sessions: $("sessions"),
+  sessionSearch: $("session-search"),
+  sessionCount: $("session-count"),
   meta: $("meta"),
   title: $("title"),
   subtitle: $("subtitle"),
@@ -63,9 +65,11 @@ let state = {
   serverBusy: false,
   activeTask: null,
   activeDetail: null,
+  sessions: [],
 };
 
 let recoveryTimer = null;
+let todosCollapsed = true;
 
 function loadPrefs() {
   try {
@@ -236,7 +240,12 @@ function renderTodos(items) {
     return `<li class="${cls}"><span>${mark}</span><span>${escapeHtml(item.content)}</span></li>`;
   });
   els.todos.classList.remove("hidden");
-  els.todos.innerHTML = `<h3>Чеклист · ${done}/${items.length}</h3><ul>${lines.join("")}</ul>`;
+  els.todos.classList.toggle("collapsed", todosCollapsed);
+  els.todos.innerHTML = `<div class="todo-head"><h3>Чеклист · ${done}/${items.length}</h3><button type="button" class="todo-toggle">${todosCollapsed ? "Показать" : "Свернуть"}</button></div><ul>${lines.join("")}</ul>`;
+  els.todos.querySelector(".todo-toggle")?.addEventListener("click", () => {
+    todosCollapsed = !todosCollapsed;
+    renderTodos(items);
+  });
   els.todos.scrollTop = 0;
 }
 
@@ -349,18 +358,38 @@ function shortPath(p) {
   return parts.slice(-2).join("/") || p;
 }
 
+function formatSessionMeta(session) {
+  const count = Number(session.messageCount || 0);
+  const label = count === 1 ? "сообщение" : count >= 2 && count <= 4 ? "сообщения" : "сообщений";
+  const date = new Date(session.updatedAt);
+  const dayLabel = Number.isNaN(date.getTime())
+    ? ""
+    : date.toDateString() === new Date().toDateString()
+      ? "сегодня"
+      : date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  return `${count} ${label}${dayLabel ? ` · ${dayLabel}` : ""}`;
+}
+
 async function refreshSessions() {
-  const sessions = await api("/api/sessions");
+  state.sessions = await api("/api/sessions");
+  renderSessions();
+}
+
+function renderSessions() {
+  const query = (els.sessionSearch?.value || "").trim().toLowerCase();
+  const sessions = state.sessions.filter((session) =>
+    !query || `${session.title} ${session.id}`.toLowerCase().includes(query));
+  if (els.sessionCount) els.sessionCount.textContent = state.sessions.length ? String(state.sessions.length) : "";
   els.sessions.innerHTML = "";
   if (!sessions.length) {
-    els.sessions.innerHTML = `<div class="muted" style="padding:8px;font-size:0.85rem">Пока нет сессий</div>`;
+    els.sessions.innerHTML = `<div class="muted session-empty">${query ? "Ничего не найдено" : "Пока нет сессий"}</div>`;
     return;
   }
   for (const session of sessions) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `session-item${session.id === state.sessionId ? " active" : ""}`;
-    btn.innerHTML = `<div class="t">${escapeHtml(session.title)}</div><div class="s">${escapeHtml(session.id.slice(0, 8))} · ${session.messageCount} msg</div>`;
+    btn.innerHTML = `<div class="t">${escapeHtml(session.title)}</div><div class="s">${escapeHtml(formatSessionMeta(session))}</div>`;
     btn.addEventListener("click", async () => {
       await api("/api/sessions/resume", { method: "POST", body: JSON.stringify({ id: session.id }) });
       els.chat.querySelectorAll(".bubble").forEach((n) => n.remove());
@@ -375,6 +404,8 @@ async function refreshSessions() {
     els.sessions.appendChild(btn);
   }
 }
+
+els.sessionSearch?.addEventListener("input", renderSessions);
 
 async function refreshHistory() {
   const data = await api("/api/history");

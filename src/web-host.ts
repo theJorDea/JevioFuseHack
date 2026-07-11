@@ -190,12 +190,14 @@ export class WebHost {
   }
 
   async listSessions() {
-    return (await listSessions(this.workspace)).map((session) => ({
-      id: session.id,
-      title: session.title,
-      updatedAt: session.updatedAt,
-      messageCount: session.messageCount,
-    }));
+    return (await listSessions(this.workspace))
+      .filter((session) => session.messageCount > 0 || session.id === this.active.info.id)
+      .map((session) => ({
+        id: session.id,
+        title: session.title,
+        updatedAt: session.updatedAt,
+        messageCount: session.messageCount,
+      }));
   }
 
   getHistory(): Array<{ role: "user" | "assistant"; content: string }> {
