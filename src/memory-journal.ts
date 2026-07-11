@@ -4,6 +4,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { MemoryRecallSnapshot, VerificationRecord } from "./types.ts";
+import type { MemoryWriteReceipt } from "./memory.ts";
 
 const execFileAsync = promisify(execFile);
 const MAX_REQUEST_CHARACTERS = 2_000;
@@ -22,6 +23,14 @@ export interface MemoryProvenanceRecord {
   workingTreeFiles: string[];
   verifications: VerificationRecord[];
   supersedes?: string[];
+  remote?: MemoryWriteReceipt;
+}
+
+interface MemoryRemoteReceiptEntry {
+  kind: "remote_receipt";
+  recordId: string;
+  attachedAt: string;
+  remote: MemoryWriteReceipt;
 }
 
 function journalPath(workspace: string): string {
@@ -90,17 +99,39 @@ export async function appendMemoryProvenance(
 export async function listMemoryProvenance(workspace: string, limit = 5): Promise<MemoryProvenanceRecord[]> {
   try {
     const document = await readFile(journalPath(workspace), "utf8");
-    return document.trim().split(/\r?\n/).reverse().flatMap((line) => {
+    const entries = document.trim().split(/\r?\n/).flatMap((line) => {
       try {
-        const record = JSON.parse(line) as MemoryProvenanceRecord;
-        return record && typeof record.id === "string" && typeof record.sessionId === "string" ? [record] : [];
+        return [JSON.parse(line) as MemoryProvenanceRecord | MemoryRemoteReceiptEntry];
       } catch {
         return [];
       }
-    }).slice(0, Math.max(1, Math.min(500, Math.floor(limit))));
+    });
+    const receipts = new Map(entries.flatMap((entry) => entry.kind === "remote_receipt" && typeof entry.recordId === "string"
+      ? [[entry.recordId, entry.remote] as const]
+      : []));
+    return entries.reverse().flatMap((record) => record.kind !== "remote_receipt" && typeof record.id === "string" && typeof record.sessionId === "string"
+      ? [{ ...record, ...(receipts.has(record.id) ? { remote: receipts.get(record.id) } : {}) }]
+      : []).slice(0, Math.max(1, Math.min(500, Math.floor(limit))));
   } catch {
     return [];
   }
+}
+
+export async function attachMemoryRemoteReceipt(
+  workspace: string,
+  recordId: string,
+  remote: MemoryWriteReceipt | undefined,
+): Promise<void> {
+  if (!remote || !recordId.trim()) return;
+  const entry: MemoryRemoteReceiptEntry = {
+    kind: "remote_receipt",
+    recordId: recordId.trim(),
+    attachedAt: new Date().toISOString(),
+    remote,
+  };
+  const file = journalPath(workspace);
+  await mkdir(path.dirname(file), { recursive: true });
+  await appendFile(file, `${JSON.stringify(entry)}\n`, "utf8");
 }
 
 export function supersededMemoryIds(records: MemoryProvenanceRecord[]): string[] {
@@ -165,6 +196,7 @@ export function formatMemoryExplanation(
       `   HEAD: ${record.repositoryHead ?? "недоступен"}`,
       `   files: ${files}`,
       `   verification: ${verification}`,
+      `   remote: ${record.remote ? [record.remote.dataId && `data=${record.remote.dataId}`, record.remote.entryId && `entry=${record.remote.entryId}`, record.remote.pipelineRunId && `run=${record.remote.pipelineRunId}`, record.remote.remoteContentHash && `remoteHash=${record.remote.remoteContentHash.slice(0, 12)}`, `sha256=${record.remote.contentHash.slice(0, 12)}`].filter(Boolean).join(" · ") : "not linked"}`,
       `   status: ${replacementById.has(record.id) ? `superseded by ${replacementById.get(record.id)}` : "active"}`,
       ...(record.supersedes?.length ? [`   supersedes: ${record.supersedes.join(", ")}`] : []),
       `   request: ${oneLine(record.request, 300)}`,

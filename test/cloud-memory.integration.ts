@@ -52,22 +52,33 @@ test("Cognee Cloud supports permanent and session-aware Jevio memory", { timeout
   const memory = new CogneeMemory(config, process.cwd());
   const marker = `JEVIO_INTEGRATION_${Date.now()}`;
   const sessionMarker = `JEVIO_SESSION_${Date.now()}`;
+  const staleMarker = `JEVIO_STALE_${Date.now()}`;
   const sessionId = `jevio-session-${Date.now()}`;
   let rememberAccepted = false;
 
   try {
-    await memory.remember(
+    const permanentReceipt = await memory.remember(
       `Integration marker ${marker}. Jevio uses Cognee for durable coding-agent memory.`,
       undefined,
       "integration.md",
     );
     rememberAccepted = true;
+    assert.equal(permanentReceipt?.contentHash.length, 64);
 
     const pipelineStatus = await waitForPipeline(memory);
     assert.equal(pipelineStatus, "DATASET_PROCESSING_COMPLETED");
 
     const recalled = await waitForRecall(memory, `Return the exact integration marker ${marker}.`, marker);
     assert.match(recalled, new RegExp(marker));
+
+    const staleReceipt = await memory.remember(
+      `Obsolete integration marker ${staleMarker}. This source must be physically deleted.`,
+      undefined,
+      "stale-integration.md",
+    );
+    assert.ok(staleReceipt?.dataId, "Cognee remember response must expose dataId for granular deletion");
+    await waitForPipeline(memory);
+    assert.equal(await memory.forgetData(staleReceipt.dataId, staleReceipt.datasetId), true);
 
     await memory.remember(
       `Session marker ${sessionMarker}. This decision must survive a Jevio session boundary.`,

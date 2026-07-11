@@ -48,11 +48,29 @@ test("Cognee remember uploads Markdown into the project dataset", async () => {
     body = init?.body as FormData;
     return new Response("{}", { status: 200 });
   });
-  await memory.remember("durable decision", "session-2", "decision.md");
+  const receipt = await memory.remember("durable decision", "session-2", "decision.md");
   assert.equal(body?.get("datasetName"), "test-project");
   assert.equal(body?.get("session_id"), null);
   assert.equal(body?.get("run_in_background"), "true");
   assert.equal(await (body?.get("data") as Blob).text(), "durable decision");
+  assert.equal(receipt?.contentHash, "b74b336dcda5c3866881fee62e2a2a14a5830c640c75378da0a387177b56a206");
+});
+
+test("Cognee remember captures addressable remote metadata", async () => {
+  const memory = new CogneeMemory(config(), process.cwd(), async () => new Response(JSON.stringify({
+    status: "running",
+    dataset_id: "dataset-1",
+    pipeline_run_id: "run-1",
+    items: [{ id: "data-1", content_hash: "server-hash" }],
+  }), { status: 200 }));
+  assert.deepEqual(await memory.remember("addressable", undefined, "addressable.md"), {
+    status: "running",
+    datasetId: "dataset-1",
+    dataId: "data-1",
+    pipelineRunId: "run-1",
+    contentHash: "b114f9751d0632806444eea66680ccff89cff911b1b6430faafab0c23fff7b60",
+    remoteContentHash: "server-hash",
+  });
 });
 
 test("Cognee session-aware memory stores the session and combines session with graph recall", async () => {
@@ -244,6 +262,22 @@ test("Cognee forget deletes only the matching project dataset", async () => {
   });
   assert.equal(await memory.forget(), true);
   assert.equal(urls[1], "http://localhost:8000/api/v1/datasets/project-id");
+});
+
+test("Cognee forgetData physically removes one source without deleting its dataset", async () => {
+  let request: { url: string; body: unknown } | undefined;
+  const memory = new CogneeMemory(config(), process.cwd(), async (input, init) => {
+    request = { url: String(input), body: JSON.parse(String(init?.body)) };
+    return new Response(JSON.stringify({ status: "deleted" }), { status: 200 });
+  });
+  assert.equal(await memory.forgetData("data-1", "dataset-1"), true);
+  assert.equal(request?.url, "http://localhost:8000/api/v1/forget");
+  assert.deepEqual(request?.body, {
+    dataId: "data-1",
+    datasetId: "dataset-1",
+    everything: false,
+    memoryOnly: false,
+  });
 });
 
 test("Cognee status reports missing configured credentials without a request", async () => {

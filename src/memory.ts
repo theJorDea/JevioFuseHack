@@ -1,8 +1,19 @@
+import { createHash } from "node:crypto";
 import type { CogneeMemoryConfig, MemoryRecallItem, MemoryRecallSnapshot } from "./types.ts";
 import type { MemoryProvenanceRecord } from "./memory-journal.ts";
 import { legacyProjectDataset } from "./project-identity.ts";
 
 type Fetcher = typeof fetch;
+
+export interface MemoryWriteReceipt {
+  status?: string;
+  datasetId?: string;
+  dataId?: string;
+  entryId?: string;
+  pipelineRunId?: string;
+  contentHash: string;
+  remoteContentHash?: string;
+}
 
 class CogneeHttpError extends Error {
   readonly status: number;
@@ -28,6 +39,28 @@ function optionalString(item: Record<string, unknown>, keys: string[]): string |
     if (typeof item[key] === "string" && item[key].trim()) return item[key].trim();
   }
   return undefined;
+}
+
+function nestedRecords(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) return value.flatMap(nestedRecords);
+  if (!value || typeof value !== "object") return [];
+  const item = value as Record<string, unknown>;
+  return [item, ...["items", "data", "result", "raw_result", "rawResult"].flatMap((key) => nestedRecords(item[key]))];
+}
+
+function writeReceipt(value: unknown, contentHash: string, session = false): MemoryWriteReceipt {
+  const records = nestedRecords(value);
+  const first = (keys: string[]) => records.map((item) => optionalString(item, keys)).find(Boolean);
+  const itemId = records.slice(1).map((item) => optionalString(item, ["data_id", "dataId", "id"])).find(Boolean);
+  return {
+    contentHash,
+    ...(first(["content_hash", "contentHash"]) ? { remoteContentHash: first(["content_hash", "contentHash"]) } : {}),
+    ...(first(["status"]) ? { status: first(["status"]) } : {}),
+    ...(first(["dataset_id", "datasetId"]) ? { datasetId: first(["dataset_id", "datasetId"]) } : {}),
+    ...(!session && (first(["data_id", "dataId"]) ?? itemId) ? { dataId: first(["data_id", "dataId"]) ?? itemId } : {}),
+    ...(session && first(["entry_id", "entryId", "id"]) ? { entryId: first(["entry_id", "entryId", "id"]) } : {}),
+    ...(first(["pipeline_run_id", "pipelineRunId", "run_id", "runId"]) ? { pipelineRunId: first(["pipeline_run_id", "pipelineRunId", "run_id", "runId"]) } : {}),
+  };
 }
 
 function responseItems(value: unknown, defaults: Pick<MemoryRecallItem, "source"> & Partial<MemoryRecallItem>): MemoryRecallItem[] {
@@ -275,12 +308,13 @@ export class CogneeMemory {
     return text;
   }
 
-  async remember(content: string, sessionId?: string, filename = "memory.md"): Promise<void> {
-    if (!this.enabled || !content.trim()) return;
+  async remember(content: string, sessionId?: string, filename = "memory.md"): Promise<MemoryWriteReceipt | undefined> {
+    if (!this.enabled || !content.trim()) return undefined;
     const boundedContent = content.trim().slice(0, Math.floor(this.config.maxRememberCharacters));
+    const contentHash = createHash("sha256").update(boundedContent).digest("hex");
     const normalizedSessionId = this.config.sessionAware ? sessionId?.trim() : undefined;
     if (normalizedSessionId) {
-      await this.request("/api/v1/remember/entry", {
+      const response = await this.request("/api/v1/remember/entry", {
         method: "POST",
         headers: this.headers(true),
         body: JSON.stringify({
@@ -295,14 +329,41 @@ export class CogneeMemory {
           session_id: normalizedSessionId,
         }),
       });
-      return;
+      return writeReceipt(response, contentHash, true);
     }
 
     const form = new FormData();
     form.append("data", new Blob([boundedContent], { type: "text/markdown" }), filename);
     form.append("datasetName", this.dataset);
     form.append("run_in_background", "true");
-    await this.request("/api/v1/remember", { method: "POST", headers: this.headers(), body: form });
+    const response = await this.request("/api/v1/remember", { method: "POST", headers: this.headers(), body: form });
+    return writeReceipt(response, contentHash);
+  }
+
+  async forgetData(dataId: string, datasetId?: string): Promise<boolean> {
+    if (!this.enabled || !dataId.trim()) return false;
+    const body = {
+      dataId: dataId.trim(),
+      ...(datasetId?.trim() ? { datasetId: datasetId.trim() } : { dataset: this.dataset }),
+      everything: false,
+      memoryOnly: false,
+    };
+    try {
+      await this.request("/api/v1/forget", { method: "POST", headers: this.headers(true), body: JSON.stringify(body) });
+      return true;
+    } catch (error) {
+      if (!(error instanceof CogneeHttpError) || error.status !== 404) throw error;
+      const datasets = datasetRecords(await this.request("/api/v1/datasets", { headers: this.headers() }));
+      const dataset = datasetId?.trim()
+        ? datasets.find((item) => item.id === datasetId.trim())
+        : datasets.find((item) => item.name === this.dataset);
+      if (!dataset) return false;
+      await this.request(`/api/v1/datasets/${encodeURIComponent(dataset.id)}/data/${encodeURIComponent(dataId.trim())}`, {
+        method: "DELETE",
+        headers: this.headers(),
+      });
+      return true;
+    }
   }
 
   async improve(sessionIds: string[] = []): Promise<void> {

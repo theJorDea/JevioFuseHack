@@ -46,7 +46,9 @@ host сохраняют запрос и итоговый ответ с ID сес
 src/memory-journal.ts хранит append-only JSONL provenance в
 `.jevio/memory-log.jsonl`. Запись содержит project ID, session ID, время,
 repository HEAD, текущие dirty paths и только реально выполненные test-команды с
-exit code. Этот журнал не передаётся модели целиком; `/memory explain` показывает
+exit code. Ответ Cognee `remember` добавляется отдельным append-only событием и
+связывает запись с доступными `dataId`, `datasetId`, `entryId`, pipeline run,
+remote content hash и локальным SHA-256. Этот журнал не передаётся модели целиком; `/memory explain` показывает
 последние записи и metadata фактически извлечённых фрагментов: source, dataset,
 session ID, score и timestamp, когда эти поля вернул Cognee. `/memory clear`
 очищает журнал вместе с Markdown-памятью и dataset Cognee, но сохраняет identity
@@ -54,9 +56,10 @@ session ID, score и timestamp, когда эти поля вернул Cognee. 
 
 Связь `supersedes` в provenance-журнале является append-only tombstone: новая
 запись указывает ID заменённых записей. CLI-команда `/memory replace` обновляет
-локальный `MEMORY.md`, сохраняет replacement в Cognee и не переписывает историю
-журнала. Перед model prompt CLI и Web host фильтруют tombstone-строки и recall-
-фрагменты, содержащие superseded record ID.
+локальный `MEMORY.md`, удаляет адресуемый старый Cognee source по `dataId`,
+сохраняет replacement и не переписывает историю журнала. Перед model prompt CLI
+и Web host дополнительно фильтруют tombstone-строки и recall-фрагменты,
+содержащие superseded record ID; это fallback для legacy-записей без receipt.
 
 src/compaction.ts оценивает размер истории, вызывает отдельную роль compactor и
 строит новый model-visible context из summary и нескольких последних сообщений.

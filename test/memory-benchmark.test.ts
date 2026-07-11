@@ -21,5 +21,7 @@ test("memory benchmark contains 20 distinct scenarios and scores recall/stalenes
   assert.equal(scored.recallAccuracy, 1);
   assert.equal(scored.staleErrorRate, 0.5);
   assert.equal(scored.toolCalls, 2);
-  assert.match(formatBenchmarkMarkdown({ createdAt: "now", dataset: "temporary", off: scored, on: scored }), /Cognee on[\s\S]*Stale errors/);
+  const markdown = formatBenchmarkMarkdown({ createdAt: "now", dataset: "temporary", remoteDeletions: 4, off: scored, on: scored });
+  assert.match(markdown, /удалено[^\n]*4/);
+  assert.match(markdown, /Stale errors[\s\S]*Cognee on/);
 });

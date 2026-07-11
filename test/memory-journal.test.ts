@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   appendMemoryProvenance,
+  attachMemoryRemoteReceipt,
   clearMemoryProvenance,
   formatMemoryExplanation,
   listMemoryProvenance,
@@ -36,6 +37,16 @@ test("memory provenance records observable repository and verification data", as
   assert.deepEqual(record.workingTreeFiles, ["changed.ts"]);
   assert.equal(record.verifications[0].exitCode, 0);
   assert.equal((await listMemoryProvenance(root))[0].id, record.id);
+  await attachMemoryRemoteReceipt(root, record.id, {
+    status: "running",
+    datasetId: "dataset-1",
+    dataId: "data-1",
+    pipelineRunId: "run-1",
+    contentHash: "a".repeat(64),
+  });
+  const linked = (await listMemoryProvenance(root))[0];
+  assert.equal(linked.remote?.dataId, "data-1");
+  assert.match(formatMemoryExplanation([linked]), /data=data-1[\s\S]*run=run-1[\s\S]*sha256=aaaaaaaaaaaa/);
   assert.match(formatMemoryExplanation([record], "recalled decision"), /recalled decision[\s\S]*project-1[\s\S]*changed\.ts[\s\S]*npm test/);
   const explained = formatMemoryExplanation([record], "recalled decision", {
     query: "why?",

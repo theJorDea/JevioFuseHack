@@ -21,6 +21,7 @@ import { formatKairosReport, runKairos, shouldAutoKairos } from "./kairos.ts";
 import { CogneeMemory, completedTurnMemory, explicitMemoryDocument } from "./memory.ts";
 import {
  appendMemoryProvenance,
+ attachMemoryRemoteReceipt,
  clearMemoryProvenance,
  formatMemoryExplanation,
  listMemoryProvenance,
@@ -585,10 +586,11 @@ async function main(): Promise<void> {
  let successfulTurns = 0;
  /** Last lightweight critique (for /critique fix). */
  let lastCritique: CritiqueResult | undefined;
- const rememberCognee = async (content: string, filename: string, sessionAware = true): Promise<string | undefined> => {
+ const rememberCognee = async (content: string, filename: string, sessionAware = true, recordId?: string): Promise<string | undefined> => {
  if (!cogneeMemory.enabled) return undefined;
  try {
- await cogneeMemory.remember(content, sessionAware ? active.info.id : undefined, filename);
+ const receipt = await cogneeMemory.remember(content, sessionAware ? active.info.id : undefined, filename);
+ if (recordId) await attachMemoryRemoteReceipt(options.workspace, recordId, receipt);
  return undefined;
  } catch (error) {
  const warning = `Cognee write skipped: ${(error as Error).message}`;
@@ -622,7 +624,7 @@ async function main(): Promise<void> {
  await appendSessionTurn(active.info, task, content);
  const provenance = await recordMemoryProvenance("completed_task", task, content, turnVerifications);
  if (config.memory.cognee.rememberCompletedTurns) {
- await rememberCognee(completedTurnMemory(task, content, provenance), `turn-${active.info.messageCount}.md`);
+ await rememberCognee(completedTurnMemory(task, content, provenance), `turn-${active.info.messageCount}.md`, true, provenance?.id);
  }
  successfulTurns += 1;
  // Lightweight auto-KAIROS: after every 2nd successful interactive turn, surface watch/action signals.
@@ -1721,7 +1723,7 @@ ${agentTask}`;
  const file = await appendProjectMemory(options.workspace, entry);
  context.projectMemory = await loadProjectMemory(options.workspace);
  const provenance = await recordMemoryProvenance("explicit_memory", entry, "Stored in project memory.", []);
- const warning = await rememberCognee(explicitMemoryDocument(entry, provenance), `explicit-${Date.now()}.md`, false);
+ const warning = await rememberCognee(explicitMemoryDocument(entry, provenance), `explicit-${Date.now()}.md`, false, provenance?.id);
  return { output: `Memory updated: ${file}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
  }
  if (sub === "replace") {
@@ -1734,6 +1736,15 @@ ${agentTask}`;
  if (matches.length > 1) return { output: `Memory record '${requestedId}' неоднозначен. Укажи более длинный ID.` };
  const target = matches[0];
  if (supersededMemoryIds(records).includes(target.id)) return { output: `Memory record '${target.id}' уже заменён.` };
+ let remoteCleanup = "";
+ if (cogneeMemory.enabled && target.remote?.dataId) {
+ try {
+ const removed = await cogneeMemory.forgetData(target.remote.dataId, target.remote.datasetId);
+ remoteCleanup = removed ? "\nOld Cognee source deleted." : "\nOld Cognee source was not found; recall filtering remains active.";
+ } catch (error) {
+ remoteCleanup = `\nOld Cognee source cleanup failed: ${(error as Error).message}. Recall filtering remains active.`;
+ }
+ }
  const file = await replaceProjectMemory(options.workspace, target.request, replacement, target.id);
  context.projectMemory = await loadProjectMemory(options.workspace);
  const provenance = await recordMemoryProvenance(
@@ -1743,8 +1754,8 @@ ${agentTask}`;
  [],
  [target.id],
  );
- const warning = await rememberCognee(explicitMemoryDocument(replacement, provenance), `replacement-${Date.now()}.md`, false);
- return { output: `Memory record ${target.id} replaced: ${file}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
+ const warning = await rememberCognee(explicitMemoryDocument(replacement, provenance), `replacement-${Date.now()}.md`, false, provenance?.id);
+ return { output: `Memory record ${target.id} replaced: ${file}${remoteCleanup}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
  }
  if (sub === "clear") {
  if (!(await confirm("Очистить память проекта?"))) return { output: "Очистка памяти отменена." };

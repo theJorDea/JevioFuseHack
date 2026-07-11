@@ -3,7 +3,7 @@ import { runAgent, type AgentEvent, type AgentOptions } from "./agent.ts";
 import { loadConfig, setAllRolesModelConfig, setDefaultProviderConfig } from "./config.ts";
 import { listProviderModels } from "./setup.ts";
 import { CogneeMemory, completedTurnMemory } from "./memory.ts";
-import { appendMemoryProvenance, listMemoryProvenance, supersededMemoryIds, type MemoryProvenanceRecord } from "./memory-journal.ts";
+import { appendMemoryProvenance, attachMemoryRemoteReceipt, listMemoryProvenance, supersededMemoryIds, type MemoryProvenanceRecord } from "./memory-journal.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import { createPlanDocument, writePlanDocument } from "./plan.ts";
 import { cogneeConfigForProject, loadProjectIdentity } from "./project-identity.ts";
@@ -587,11 +587,12 @@ export class WebHost {
     }
     if (cognee.enabled && this.config.memory.cognee.rememberCompletedTurns) {
       try {
-        await cognee.remember(
+        const receipt = await cognee.remember(
           completedTurnMemory(task, content, provenance),
           this.active.info.id,
           `turn-${this.active.info.messageCount}.md`,
         );
+        if (provenance) await attachMemoryRemoteReceipt(this.workspace, provenance.id, receipt);
       } catch (error) {
         emit({ type: "status", detail: `Cognee write skipped: ${(error as Error).message}` });
       }

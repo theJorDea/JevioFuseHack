@@ -48,6 +48,7 @@ export function formatBenchmarkMarkdown(report) {
     "",
     `Дата: ${report.createdAt}`,
     `Dataset: \`${report.dataset}\` (временный, удалён после теста)` ,
+    `Физически удалено устаревших Cognee sources: ${report.remoteDeletions ?? 0}`,
     "",
     "| Режим | Успешно | Recall accuracy | Stale errors | Tokens (оценка) | Tool calls | Время |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -91,13 +92,24 @@ async function main() {
   const corpus = cases.map((item) => [
     `## ${item.id}`,
     item.memory,
-    item.staleMemory ? `\n${item.staleMemory}` : "",
   ].join("\n")).join("\n\n");
   const off = evaluateRecall(cases, new Map());
   const contexts = new Map();
   const startedAt = performance.now();
   let remembered = false;
+  let remoteDeletions = 0;
   try {
+    const staleReceipts = [];
+    for (const item of cases.filter((entry) => entry.staleMemory)) {
+      const receipt = await memory.remember(item.staleMemory, undefined, `stale-${item.id}.md`);
+      remembered = true;
+      if (!receipt?.dataId) throw new Error(`Cognee remember did not return dataId for stale-${item.id}.md`);
+      staleReceipts.push(receipt);
+    }
+    await waitForPipeline(memory);
+    for (const receipt of staleReceipts) {
+      if (await memory.forgetData(receipt.dataId, receipt.datasetId)) remoteDeletions += 1;
+    }
     await memory.remember(corpus, undefined, "memory-benchmark.md");
     remembered = true;
     await waitForPipeline(memory);
@@ -106,7 +118,7 @@ async function main() {
     if (remembered) await memory.forget();
   }
   const on = evaluateRecall(cases, contexts, Math.round(performance.now() - startedAt));
-  const report = { createdAt: new Date().toISOString(), dataset: config.dataset, off, on };
+  const report = { createdAt: new Date().toISOString(), dataset: config.dataset, remoteDeletions, off, on };
   const outputDirectory = path.join(root, "benchmark", "results");
   await mkdir(outputDirectory, { recursive: true });
   const basename = report.createdAt.replace(/[:.]/g, "-");
