@@ -19,6 +19,7 @@
     "web": "node src/web-server.ts",
     "test": "node scripts/run-tests.mjs test/*.test.ts",
     "test:cloud": "node scripts/run-tests.mjs test/cloud-memory.integration.ts",
+    "benchmark:memory": "node scripts/memory-benchmark.mjs",
     "check": "node --check src/cli.ts"
   },
   "engines": {
