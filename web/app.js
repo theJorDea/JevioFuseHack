@@ -14,18 +14,26 @@ const els = {
   form: $("composer"),
   sessions: $("sessions"),
   sessionSearch: $("session-search"),
+  sessionSearchClear: $("session-search-clear"),
   sessionCount: $("session-count"),
   meta: $("meta"),
   title: $("title"),
   subtitle: $("subtitle"),
+  workspaceTrigger: $("workspace-trigger"),
   pill: $("status-pill"),
+  statusPopover: $("status-popover"),
+  statusConnection: $("status-connection"),
+  statusProvider: $("status-provider"),
+  statusModel: $("status-model"),
   modeChip: $("mode-chip"),
+  modeChipLabel: $("mode-chip-label"),
   yolo: $("yolo"),
   mode: $("mode"),
   btnNew: $("btn-new"),
   btnSettings: $("btn-settings"),
   btnSettings2: $("btn-settings-2"),
   btnSidebar: $("btn-sidebar"),
+  btnCollapseSidebar: $("btn-collapse-sidebar"),
   settings: $("settings"),
   settingsBackdrop: $("settings-backdrop"),
   settingsClose: $("settings-close"),
@@ -53,6 +61,13 @@ const els = {
   modalCustomSend: $("modal-custom-send"),
   suggestions: $("suggestions"),
   composerHint: $("composer-hint"),
+  btnAttach: $("btn-attach"),
+  attachmentMenu: $("attachment-menu"),
+  btnAttachFiles: $("btn-attach-files"),
+  btnAttachFolder: $("btn-attach-folder"),
+  fileInput: $("file-input"),
+  folderInput: $("folder-input"),
+  attachments: $("attachments"),
 };
 
 const PREFS_KEY = "fuse-web-prefs";
@@ -69,6 +84,7 @@ let state = {
   sessions: [],
   abortController: null,
   stopRequested: false,
+  attachments: [],
 };
 
 let recoveryTimer = null;
@@ -97,12 +113,36 @@ function applyPrefs(prefs = loadPrefs()) {
     document.documentElement.dataset.theme = theme;
   }
   document.body.classList.toggle("compact", Boolean(prefs.compact));
+  const sidebarCollapsed = Boolean(prefs.sidebarCollapsed);
+  els.app.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+  if (els.btnCollapseSidebar) {
+    els.btnCollapseSidebar.title = sidebarCollapsed ? "Развернуть список сессий" : "Свернуть список сессий";
+    els.btnCollapseSidebar.setAttribute("aria-label", els.btnCollapseSidebar.title);
+  }
   if (els.setTheme) els.setTheme.value = theme;
   if (els.setCompact) els.setCompact.checked = Boolean(prefs.compact);
 }
 
+const MODE_LABELS = {
+  orchestrate: "оркестрация",
+  direct: "напрямую",
+  plan: "план",
+  team: "команда",
+  "council-plan": "совет · план",
+  "council-review": "совет · ревью",
+};
+
+function modeLabel(mode) {
+  return MODE_LABELS[mode] || mode || "режим";
+}
+
+function displaySessionTitle(title) {
+  return title === "New session" ? "Новая сессия" : title || "Новая сессия";
+}
+
 function setPill(kind, text) {
   els.pill.className = `pill ${kind}`;
+  els.pill.setAttribute("aria-label", `Состояние: ${text}`);
   const txt = els.pill.querySelector(".txt");
   if (txt) txt.textContent = text;
   else els.pill.textContent = text;
@@ -297,10 +337,10 @@ async function loadSettingsPanel() {
     state.settings = settings;
     els.mode.value = settings.mode;
     els.yolo.checked = Boolean(settings.yolo);
-    els.modeChip.textContent = settings.mode;
+    els.modeChipLabel.textContent = modeLabel(settings.mode);
 
     els.setProvider.innerHTML = settings.providers.map((p) =>
-      `<option value="${escapeHtml(p.name)}" ${p.name === settings.currentProvider ? "selected" : ""}>${escapeHtml(p.name)}${p.isDefault ? " · default" : ""}</option>`,
+      `<option value="${escapeHtml(p.name)}" ${p.name === settings.currentProvider ? "selected" : ""}>${escapeHtml(p.name)}${p.isDefault ? " · по умолчанию" : ""}</option>`,
     ).join("");
 
     els.rolesTable.innerHTML = settings.roles.map((r) =>
@@ -308,10 +348,10 @@ async function loadSettingsPanel() {
     ).join("");
 
     els.envInfo.innerHTML = [
-      `<div><b>Workspace</b><br>${escapeHtml(settings.workspace)}</div>`,
+      `<div><b>Рабочая папка</b><br>${escapeHtml(settings.workspace)}</div>`,
       `<div style="margin-top:8px"><b>Провайдер</b><br>${escapeHtml(settings.currentProvider)}</div>`,
       `<div style="margin-top:8px"><b>Модель</b><br>${escapeHtml(settings.currentModel)}</div>`,
-      `<div style="margin-top:8px"><b>Shell</b><br>${escapeHtml(settings.permissions.shellMode)}</div>`,
+      `<div style="margin-top:8px"><b>Команды оболочки</b><br>${escapeHtml(settings.permissions.shellMode)}</div>`,
     ].join("");
 
     await refreshModelSelect(settings.currentProvider, settings.currentModel);
@@ -338,17 +378,19 @@ async function refreshStatus() {
   state.serverBusy = Boolean(status.busy);
   state.activeTask = status.activeTask || null;
   state.activeDetail = status.activeDetail || null;
-  els.title.textContent = status.title || "Сессия";
+  els.title.textContent = displaySessionTitle(status.title);
   els.subtitle.textContent = shortPath(status.workspace);
   els.meta.innerHTML = [
-    `<div><b>${escapeHtml(status.provider)}</b> / ${escapeHtml(status.model)}</div>`,
-    `<div style="margin-top:4px">${escapeHtml(status.sessionId.slice(0, 8))} · ${status.messageCount} сообщ.</div>`,
-    `<div style="margin-top:4px;opacity:.85">${escapeHtml(shortPath(status.workspace))}</div>`,
+    `<div><b>Рабочая папка</b><br>${escapeHtml(shortPath(status.workspace))}</div>`,
+    `<div style="margin-top:8px"><b>Сессия</b><br><span class="meta-mono">${escapeHtml(status.sessionId.slice(0, 8))}</span> · ${status.messageCount} сообщ.</div>`,
   ].join("");
   els.mode.value = status.mode;
-  els.modeChip.textContent = status.mode;
+  els.modeChipLabel.textContent = modeLabel(status.mode);
   els.yolo.checked = Boolean(status.yolo);
   els.composerHint.textContent = `${status.provider} · ${status.model}`;
+  els.statusConnection.textContent = status.busy ? "выполняется" : "подключено";
+  els.statusProvider.textContent = status.provider || "—";
+  els.statusModel.textContent = status.model || "—";
   renderTodos(status.todos);
   setPill(status.busy ? "busy" : "idle", status.busy ? "работает…" : "готов");
   if (status.busy) setLive(status.activeDetail || "работает…");
@@ -363,14 +405,13 @@ function shortPath(p) {
 
 function formatSessionMeta(session) {
   const count = Number(session.messageCount || 0);
-  const label = count === 1 ? "сообщение" : count >= 2 && count <= 4 ? "сообщения" : "сообщений";
   const date = new Date(session.updatedAt);
   const dayLabel = Number.isNaN(date.getTime())
     ? ""
     : date.toDateString() === new Date().toDateString()
       ? "сегодня"
       : date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-  return `${count} ${label}${dayLabel ? ` · ${dayLabel}` : ""}`;
+  return { count, dayLabel };
 }
 
 async function refreshSessions() {
@@ -392,12 +433,13 @@ function renderSessions() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `session-item${session.id === state.sessionId ? " active" : ""}`;
-    btn.innerHTML = `<div class="t">${escapeHtml(session.title)}</div><div class="s">${escapeHtml(formatSessionMeta(session))}</div>`;
+    const meta = formatSessionMeta(session);
+    btn.innerHTML = `<div class="t">${escapeHtml(displaySessionTitle(session.title))}</div><div class="s"><span class="message-badge">${meta.count}</span><span>${escapeHtml(meta.dayLabel || "без даты")}</span></div>`;
     btn.addEventListener("click", async () => {
       await api("/api/sessions/resume", { method: "POST", body: JSON.stringify({ id: session.id }) });
       els.chat.querySelectorAll(".bubble").forEach((n) => n.remove());
       showEmptyIfNeeded();
-      appendBubble("system", `Сессия: ${session.title}`);
+      appendBubble("system", `Сессия: ${displaySessionTitle(session.title)}`);
       await refreshStatus();
       await refreshHistory();
       await refreshSessions();
@@ -408,7 +450,16 @@ function renderSessions() {
   }
 }
 
-els.sessionSearch?.addEventListener("input", renderSessions);
+els.sessionSearch?.addEventListener("input", () => {
+  els.sessionSearchClear?.classList.toggle("hidden", !els.sessionSearch.value);
+  renderSessions();
+});
+els.sessionSearchClear?.addEventListener("click", () => {
+  els.sessionSearch.value = "";
+  els.sessionSearchClear.classList.add("hidden");
+  renderSessions();
+  els.sessionSearch.focus();
+});
 
 async function refreshHistory() {
   const data = await api("/api/history");
@@ -524,11 +575,50 @@ els.mode.addEventListener("change", async () => {
   await refreshStatus();
 });
 
-els.btnSettings.addEventListener("click", openSettings);
+els.btnSettings?.addEventListener("click", openSettings);
 els.btnSettings2.addEventListener("click", openSettings);
 els.settingsClose.addEventListener("click", closeSettings);
 els.settingsBackdrop.addEventListener("click", closeSettings);
 els.btnSidebar?.addEventListener("click", () => els.sidebar.classList.toggle("open"));
+els.btnCollapseSidebar?.addEventListener("click", () => {
+  savePrefs({ sidebarCollapsed: !els.app.classList.contains("sidebar-collapsed") });
+});
+els.workspaceTrigger?.addEventListener("click", openSettings);
+
+els.pill.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const open = els.statusPopover.classList.contains("hidden");
+  els.statusPopover.classList.toggle("hidden", !open);
+  els.pill.setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".status-wrap")) {
+    els.statusPopover.classList.add("hidden");
+    els.pill.setAttribute("aria-expanded", "false");
+  }
+  if (!event.target.closest(".attachment-wrap")) {
+    els.attachmentMenu.classList.add("hidden");
+    els.btnAttach.setAttribute("aria-expanded", "false");
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  els.statusPopover.classList.add("hidden");
+  els.pill.setAttribute("aria-expanded", "false");
+  els.attachmentMenu.classList.add("hidden");
+  els.btnAttach.setAttribute("aria-expanded", "false");
+});
+
+els.btnAttach?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const open = els.attachmentMenu.classList.contains("hidden");
+  els.attachmentMenu.classList.toggle("hidden", !open);
+  els.btnAttach.setAttribute("aria-expanded", String(open));
+});
+els.btnAttachFiles?.addEventListener("click", () => els.fileInput.click());
+els.btnAttachFolder?.addEventListener("click", () => els.folderInput.click());
+els.fileInput?.addEventListener("change", () => addAttachments(els.fileInput.files));
+els.folderInput?.addEventListener("change", () => addAttachments(els.folderInput.files));
 
 els.setTheme.addEventListener("change", () => savePrefs({ theme: els.setTheme.value }));
 els.setCompact.addEventListener("change", () => savePrefs({ compact: els.setCompact.checked }));
@@ -613,7 +703,9 @@ els.form.addEventListener("submit", async (event) => {
   if (!text || state.busy) return;
   els.input.value = "";
   autoResize();
-  await sendChat(text);
+  const prompt = await buildPromptWithAttachments(text);
+  clearAttachments();
+  await sendChat(prompt);
 });
 els.stop.addEventListener("click", stopChat);
 
@@ -628,6 +720,79 @@ els.input.addEventListener("input", autoResize);
 function autoResize() {
   els.input.style.height = "auto";
   els.input.style.height = `${Math.min(els.input.scrollHeight, 160)}px`;
+}
+
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  "css", "csv", "html", "js", "json", "md", "mjs", "py", "sh", "sql", "svg", "tsx", "ts", "txt", "vue", "xml", "yaml", "yml",
+]);
+
+function attachmentPath(file) {
+  return file.webkitRelativePath || file.name;
+}
+
+function isTextAttachment(file) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  return file.type.startsWith("text/") || TEXT_ATTACHMENT_EXTENSIONS.has(extension);
+}
+
+function renderAttachments() {
+  if (!state.attachments.length) {
+    els.attachments.classList.add("hidden");
+    els.attachments.innerHTML = "";
+    return;
+  }
+  els.attachments.classList.remove("hidden");
+  els.attachments.innerHTML = state.attachments.map((file, index) => `
+    <span class="attachment-chip" title="${escapeHtml(attachmentPath(file))}">
+      <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg>
+      <span>${escapeHtml(file.name)}</span>
+      <button type="button" data-remove-attachment="${index}" aria-label="Убрать ${escapeHtml(file.name)}">×</button>
+    </span>`).join("");
+  els.attachments.querySelectorAll("[data-remove-attachment]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.attachments.splice(Number(button.dataset.removeAttachment), 1);
+      renderAttachments();
+    });
+  });
+}
+
+function addAttachments(files) {
+  for (const file of Array.from(files || [])) {
+    if (state.attachments.length >= 20) break;
+    const duplicate = state.attachments.some((current) =>
+      attachmentPath(current) === attachmentPath(file) && current.size === file.size && current.lastModified === file.lastModified);
+    if (!duplicate) state.attachments.push(file);
+  }
+  renderAttachments();
+  els.attachmentMenu.classList.add("hidden");
+  els.btnAttach.setAttribute("aria-expanded", "false");
+}
+
+function clearAttachments() {
+  state.attachments = [];
+  els.fileInput.value = "";
+  els.folderInput.value = "";
+  renderAttachments();
+}
+
+async function buildPromptWithAttachments(text) {
+  if (!state.attachments.length) return text;
+  const blocks = [];
+  let totalTextBytes = 0;
+  for (const file of state.attachments) {
+    const label = attachmentPath(file);
+    if (!isTextAttachment(file) || file.size > 180_000 || totalTextBytes + file.size > 600_000) {
+      blocks.push(`[Вложение: ${label}. Файл выбран локально; содержимое не вставлено в сообщение.]`);
+      continue;
+    }
+    try {
+      blocks.push(`--- ${label}\n${await file.text()}`);
+      totalTextBytes += file.size;
+    } catch {
+      blocks.push(`[Вложение: ${label}. Не удалось прочитать файл в браузере.]`);
+    }
+  }
+  return `${text}\n\nКонтекст из вложений:\n${blocks.join("\n\n")}`;
 }
 
 function setBusyControls(busy) {

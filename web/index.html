@@ -7,7 +7,7 @@
   <title>Fuse</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -15,14 +15,13 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand-row">
         <div class="brand">
-          <div class="mark" aria-hidden="true"></div>
           <div>
-            <div class="logo">Fuse</div>
-            <div class="logo-sub">coding agent</div>
+            <div class="logo">FUSE<span aria-hidden="true">/</span></div>
+            <div class="logo-sub">локальный агент</div>
           </div>
         </div>
-        <button type="button" class="icon-btn" id="btn-settings" title="Настройки" aria-label="Настройки">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.51 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.51-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.51 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9c.26.6.88 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>
+        <button type="button" class="icon-btn sidebar-collapse" id="btn-collapse-sidebar" title="Свернуть список сессий" aria-label="Свернуть список сессий">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m15 18-6-6 6-6"/></svg>
         </button>
       </div>
 
@@ -38,6 +37,7 @@
         <span class="sr-only">Поиск сессий</span>
         <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
         <input id="session-search" type="search" placeholder="Найти сессию…" autocomplete="off" />
+        <button type="button" id="session-search-clear" class="search-clear hidden" aria-label="Очистить поиск">×</button>
       </label>
       <div id="sessions" class="sessions"></div>
 
@@ -49,15 +49,32 @@
     <main class="main">
       <header class="top">
         <div class="top-left">
-          <button type="button" class="icon-btn mobile-only" id="btn-sidebar" aria-label="Меню">☰</button>
+          <button type="button" class="icon-btn mobile-only" id="btn-sidebar" aria-label="Открыть список сессий">
+            <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+          </button>
           <div>
-            <h1 id="title">Сессия</h1>
-            <p id="subtitle" class="muted">Локальный агент в браузере</p>
+            <h1 id="title">Новая сессия</h1>
+            <button type="button" id="workspace-trigger" class="workspace-trigger" title="Рабочая директория задаётся при запуске Fuse">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+              <span id="subtitle">Рабочая папка</span>
+              <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
           </div>
         </div>
         <div class="top-right">
-          <div id="mode-chip" class="chip">orchestrate</div>
-          <div id="status-pill" class="pill idle"><span class="dot"></span><span class="txt">готов</span></div>
+          <div id="mode-chip" class="chip" title="Оркестрация: Fuse сам выбирает роли и порядок работы"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h8M4 12h16M4 18h11"/><path d="m16 5 3 3-3 3"/></svg><span id="mode-chip-label">оркестрация</span></div>
+          <div class="status-wrap">
+            <button type="button" id="status-pill" class="pill idle" aria-expanded="false" aria-controls="status-popover"><span class="dot"></span><span class="txt">готов</span></button>
+            <div id="status-popover" class="status-popover hidden" role="status">
+              <div class="status-popover-head"><strong>Состояние Fuse</strong><span class="status-live-dot"></span></div>
+              <dl>
+                <div><dt>Подключение</dt><dd id="status-connection">готово</dd></div>
+                <div><dt>Провайдер</dt><dd id="status-provider">—</dd></div>
+                <div><dt>Модель</dt><dd id="status-model">—</dd></div>
+              </dl>
+              <p>Данные GPU доступны только если их отдаёт локальный провайдер.</p>
+            </div>
+          </div>
           <button type="button" class="icon-btn" id="btn-settings-2" title="Настройки" aria-label="Настройки">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.51 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.51-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.51 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9c.26.6.88 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>
           </button>
@@ -66,14 +83,14 @@
 
       <div id="chat" class="chat" aria-live="polite">
         <div class="empty" id="empty-state">
-          <div class="empty-orb"></div>
-          <h2>Чем займёмся?</h2>
-          <p>Опиши задачу обычным языком — Fuse напишет и поправит код в проекте.</p>
+          <div class="empty-eyebrow"><span aria-hidden="true"></span> FUSE ГОТОВ</div>
+          <h2>Что нужно сделать?</h2>
+          <p>Опиши результат обычным языком. Fuse разберётся с проектом, сделает работу и покажет, что изменилось.</p>
           <div class="suggestions" id="suggestions">
-            <button type="button" data-prompt="Объясни структуру этого проекта простыми словами">Понять проект</button>
-            <button type="button" data-prompt="Найди и исправь очевидные баги в коде">Найти баги</button>
-            <button type="button" data-prompt="Добавь README с инструкцией по запуску">Сделать README</button>
-            <button type="button" data-prompt="Предложи 5 улучшений UX/кода">Идеи улучшений</button>
+            <button type="button" data-prompt="Объясни структуру этого проекта простыми словами"><span>Разобраться в проекте</span><small>обзор кода</small></button>
+            <button type="button" data-prompt="Найди и исправь очевидные баги в коде"><span>Найти проблемные места</span><small>проверка кода</small></button>
+            <button type="button" data-prompt="Добавь README с инструкцией по запуску"><span>Подготовить README</span><small>документация</small></button>
+            <button type="button" data-prompt="Предложи 5 улучшений UX/кода"><span>Улучшить интерфейс</span><small>UX и фронтенд</small></button>
           </div>
         </div>
       </div>
@@ -94,16 +111,28 @@
           <div class="composer-bar">
             <span class="hint" id="composer-hint">локально · без облака</span>
             <div class="composer-actions">
+              <div class="attachment-wrap">
+                <button type="button" id="btn-attach" class="composer-icon" title="Прикрепить файлы или папку" aria-label="Прикрепить файлы или папку" aria-expanded="false">
+                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m20.5 11.5-8.8 8.8a5 5 0 0 1-7.1-7.1l9.2-9.2a3.5 3.5 0 0 1 5 5l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.2-8.2"/></svg>
+                </button>
+                <div id="attachment-menu" class="attachment-menu hidden">
+                  <button type="button" id="btn-attach-files"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg><span>Файлы</span></button>
+                  <button type="button" id="btn-attach-folder"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg><span>Папка</span></button>
+                </div>
+                <input id="file-input" class="hidden" type="file" multiple />
+                <input id="folder-input" class="hidden" type="file" webkitdirectory multiple />
+              </div>
               <button type="button" id="stop" class="btn stop hidden" aria-label="Остановить выполнение">
                 <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                 <span>Остановить</span>
               </button>
-            <button type="submit" id="send" class="btn primary send">
+            <button type="submit" id="send" class="btn primary send" aria-label="Отправить задачу">
               <span>Отправить</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             </button>
             </div>
           </div>
+          <div id="attachments" class="attachments hidden" aria-live="polite"></div>
         </div>
       </form>
 
@@ -119,7 +148,9 @@
         <h2>Настройки</h2>
         <p class="muted">Провайдер, модель, режим, YOLO</p>
       </div>
-      <button type="button" class="icon-btn" id="settings-close" aria-label="Закрыть">✕</button>
+      <button type="button" class="icon-btn" id="settings-close" aria-label="Закрыть настройки">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
     </div>
 
     <div class="settings-body">
@@ -128,12 +159,12 @@
         <label class="field">
           <span>Режим работы</span>
           <select id="mode">
-            <option value="orchestrate">orchestrate — умная маршрутизация</option>
-            <option value="direct">direct — только coder</option>
-            <option value="plan">plan — сначала план</option>
-            <option value="team">team — architect → coder → reviewer</option>
-            <option value="council-plan">council-plan — совет архитекторов</option>
-            <option value="council-review">council-review — совет ревьюеров</option>
+            <option value="orchestrate">Оркестрация — умная маршрутизация</option>
+            <option value="direct">Напрямую — только coder</option>
+            <option value="plan">План — сначала план</option>
+            <option value="team">Команда — architect → coder → reviewer</option>
+            <option value="council-plan">Совет — план архитекторов</option>
+            <option value="council-review">Совет — ревьюеры</option>
           </select>
         </label>
         <label class="switch-row">
@@ -153,7 +184,7 @@
         </label>
         <label class="check-row">
           <input type="checkbox" id="set-apply-default-model" />
-          <span>Подставить defaultModel провайдера всем ролям</span>
+          <span>Подставить модель по умолчанию провайдера всем ролям</span>
         </label>
         <button type="button" id="btn-apply-provider" class="btn secondary block">Применить провайдер</button>
 
