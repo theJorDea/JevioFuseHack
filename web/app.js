@@ -232,6 +232,7 @@ function renderTodos(items) {
   });
   els.todos.classList.remove("hidden");
   els.todos.innerHTML = `<h3>Чеклист · ${done}/${items.length}</h3><ul>${lines.join("")}</ul>`;
+  els.todos.scrollTop = 0;
 }
 
 function escapeHtml(s) {
