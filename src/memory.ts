@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
-import path from "node:path";
 import type { CogneeMemoryConfig } from "./types.ts";
 import type { MemoryProvenanceRecord } from "./memory-journal.ts";
+import { legacyProjectDataset } from "./project-identity.ts";
 
 type Fetcher = typeof fetch;
 
@@ -22,13 +21,6 @@ export interface MemoryStatus {
   detail: string;
   dataset: string;
   pipelineStatus?: string;
-}
-
-function projectDataset(workspace: string, configured?: string): string {
-  if (configured?.trim()) return configured.trim();
-  const name = path.basename(path.resolve(workspace)).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-|-$/g, "") || "project";
-  const hash = createHash("sha256").update(path.resolve(workspace)).digest("hex").slice(0, 12);
-  return `jevio-${name.slice(0, 40)}-${hash}`;
 }
 
 function responseStrings(value: unknown): string[] {
@@ -84,7 +76,7 @@ export class CogneeMemory {
     this.fetcher = fetcher;
     const environmentBaseUrl = config.baseUrlEnv ? process.env[config.baseUrlEnv]?.trim() : undefined;
     this.baseUrl = (environmentBaseUrl || config.baseUrl).replace(/\/+$/, "").replace(/\/api\/v1$/i, "");
-    this.dataset = projectDataset(workspace, config.dataset);
+    this.dataset = config.dataset?.trim() || legacyProjectDataset(workspace);
   }
 
   get enabled(): boolean {
@@ -268,6 +260,7 @@ export function completedTurnMemory(task: string, answer: string, provenance?: M
     "",
     `- Record: \`${inlineMetadata(provenance.id)}\``,
     `- Created: \`${inlineMetadata(provenance.createdAt)}\``,
+    `- Project: ${provenance.projectId ? `\`${inlineMetadata(provenance.projectId)}\`` : "legacy record"}`,
     `- Session: \`${inlineMetadata(provenance.sessionId)}\``,
     `- Repository HEAD: ${provenance.repositoryHead ? `\`${inlineMetadata(provenance.repositoryHead)}\`` : "unavailable"}`,
     `- Working tree files: ${provenance.workingTreeFiles.length ? provenance.workingTreeFiles.map((file) => `\`${inlineMetadata(file)}\``).join(", ") : "none"}`,

@@ -27,6 +27,12 @@ session workflow Kimi Code.
 .jevio/MEMORY.md содержит долговременные пользовательские инструкции проекта.
 Он загружается отдельно от session history и передаётся всем ролям.
 
+src/project-identity.ts атомарно создаёт `.jevio/project.json` со случайным
+project ID и именем Cognee dataset. При первой записи dataset вычисляется прежним
+path-based алгоритмом, поэтому обновление не отрезает существующую память. После
+переноса workspace сохранённое имя используется повторно. Явный dataset из
+конфига всегда имеет приоритет.
+
 src/memory.ts реализует опциональный Cognee REST adapter. Markdown остаётся
 источником истины, а Cognee хранит проектный semantic index. Перед задачей host
 объединяет recall активной сессии с dataset-scoped graph recall и помечает
@@ -37,11 +43,11 @@ src/memory.ts реализует опциональный Cognee REST adapter. M
 влияют на основной session workflow.
 
 src/memory-journal.ts хранит append-only JSONL provenance в
-`.jevio/memory-log.jsonl`. Запись содержит session ID, время, repository HEAD,
-текущие dirty paths и только реально выполненные test-команды с exit code. Этот
-журнал не передаётся модели целиком; `/memory explain` показывает последние
-записи и фактически извлечённый контекст. `/memory clear` очищает журнал вместе с
-Markdown-памятью и dataset Cognee.
+`.jevio/memory-log.jsonl`. Запись содержит project ID, session ID, время,
+repository HEAD, текущие dirty paths и только реально выполненные test-команды с
+exit code. Этот журнал не передаётся модели целиком; `/memory explain` показывает
+последние записи и фактически извлечённый контекст. `/memory clear` очищает журнал
+вместе с Markdown-памятью и dataset Cognee, но сохраняет identity проекта.
 
 src/compaction.ts оценивает размер истории, вызывает отдельную роль compactor и
 строит новый model-visible context из summary и нескольких последних сообщений.

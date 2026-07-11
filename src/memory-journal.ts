@@ -14,6 +14,7 @@ export interface MemoryProvenanceRecord {
   id: string;
   kind: "completed_task" | "explicit_memory";
   createdAt: string;
+  projectId?: string;
   sessionId: string;
   request: string;
   result: string;
@@ -57,7 +58,7 @@ function boundedVerifications(records: VerificationRecord[]): VerificationRecord
 
 export async function appendMemoryProvenance(
   workspace: string,
-  input: Pick<MemoryProvenanceRecord, "kind" | "sessionId" | "request" | "result" | "verifications">,
+  input: Pick<MemoryProvenanceRecord, "kind" | "sessionId" | "request" | "result" | "verifications"> & { projectId?: string },
 ): Promise<MemoryProvenanceRecord> {
   const [repositoryHead, status] = await Promise.all([
     gitOutput(workspace, ["rev-parse", "HEAD"]),
@@ -67,6 +68,7 @@ export async function appendMemoryProvenance(
     id: randomUUID(),
     kind: input.kind,
     createdAt: new Date().toISOString(),
+    ...(input.projectId ? { projectId: input.projectId } : {}),
     sessionId: input.sessionId,
     request: input.request.trim().slice(0, MAX_REQUEST_CHARACTERS),
     result: input.result.trim().slice(0, MAX_RESULT_CHARACTERS),
@@ -119,6 +121,7 @@ export function formatMemoryExplanation(records: MemoryProvenanceRecord[], recal
       : "не зафиксирована";
     return [
       `${index + 1}. ${record.createdAt} · ${record.kind} · ${record.id}`,
+      `   project: ${record.projectId ?? "legacy record"}`,
       `   session: ${record.sessionId}`,
       `   HEAD: ${record.repositoryHead ?? "недоступен"}`,
       `   files: ${files}`,

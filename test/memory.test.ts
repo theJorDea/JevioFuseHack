@@ -224,6 +224,7 @@ test("completed turn memory contains the request and result", () => {
     id: "record-1",
     kind: "completed_task",
     createdAt: "2026-07-11T00:00:00.000Z",
+    projectId: "project-1",
     sessionId: "session-1",
     request: "Fix it",
     result: "Done",
@@ -231,5 +232,5 @@ test("completed turn memory contains the request and result", () => {
     workingTreeFiles: ["src/memory.ts"],
     verifications: [{ command: "npm test", exitCode: 0, summary: "passed" }],
   });
-  assert.match(documented, /record-1[\s\S]*abc123[\s\S]*src\/memory\.ts[\s\S]*npm test/);
+  assert.match(documented, /record-1[\s\S]*project-1[\s\S]*abc123[\s\S]*src\/memory\.ts[\s\S]*npm test/);
 });

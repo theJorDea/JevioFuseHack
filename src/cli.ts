@@ -23,6 +23,7 @@ import {
 } from "./memory-journal.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import { createPlanDocument, writePlanDocument, type PlanDocument } from "./plan.ts";
+import { cogneeConfigForProject, loadProjectIdentity } from "./project-identity.ts";
 import {
   appendProjectMemory,
   appendSessionCouncil,
@@ -331,8 +332,10 @@ async function makeContext(options: CliOptions, confirm: ToolContext["confirm"])
 
 async function doctor(options: CliOptions): Promise<void> {
   const config = await loadConfig(options.workspace, options.configPath);
+  const projectIdentity = await loadProjectIdentity(options.workspace);
   let failures = 0;
-  const memory = new CogneeMemory(config.memory.cognee, options.workspace);
+  const memory = new CogneeMemory(cogneeConfigForProject(config.memory.cognee, projectIdentity), options.workspace);
+  console.log(`OK   project identity: ${projectIdentity.id}; dataset ${memory.dataset}`);
   if (memory.enabled) {
     const status = await memory.status();
     if (status.available) console.log(`OK   Cognee memory: ${status.detail}; dataset ${status.dataset}; pipeline ${status.pipelineStatus ?? "unknown"}`);
@@ -461,10 +464,11 @@ async function main(): Promise<void> {
     return /^(y|yes)$/i.test(answer.trim());
   };
   const { config, context } = await makeContext(options, confirm);
+  const projectIdentity = await loadProjectIdentity(options.workspace);
   const mcpPlugins = await McpPluginManager.create(options.workspace, config);
   context.plugins = mcpPlugins;
   context.autoApprovePlugins = options.yes || config.permissions.autoApprovePlugins;
-  const cogneeMemory = new CogneeMemory(config.memory.cognee, options.workspace);
+  const cogneeMemory = new CogneeMemory(cogneeConfigForProject(config.memory.cognee, projectIdentity), options.workspace);
   context.askUser = async (question, choices) => {
     if (tui) return tui.askUser(question, choices);
     if (!terminal) return "[unavailable: non-interactive run]";
@@ -516,6 +520,7 @@ async function main(): Promise<void> {
     try {
       return await appendMemoryProvenance(options.workspace, {
         kind,
+        projectId: projectIdentity.id,
         sessionId: active.info.id,
         request,
         result,
@@ -970,6 +975,7 @@ async function main(): Promise<void> {
         return {
           output: [
             `Markdown: ${context.projectMemory?.trim() ? "loaded" : "empty"}`,
+            `Project: ${projectIdentity.id}`,
             `Cognee: ${status.enabled ? (status.available ? "connected" : "unavailable") : "disabled"}`,
             `Dataset: ${status.dataset}`,
             `Pipeline: ${status.pipelineStatus ?? "unknown"}`,

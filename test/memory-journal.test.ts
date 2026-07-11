@@ -23,6 +23,7 @@ test("memory provenance records observable repository and verification data", as
   await writeFile(path.join(root, "changed.ts"), "export const changed = true;\n", "utf8");
   const record = await appendMemoryProvenance(root, {
     kind: "completed_task",
+    projectId: "project-1",
     sessionId: "session-1",
     request: "Add provenance",
     result: "Implemented the journal.",
@@ -30,10 +31,11 @@ test("memory provenance records observable repository and verification data", as
   });
 
   assert.equal(record.sessionId, "session-1");
+  assert.equal(record.projectId, "project-1");
   assert.deepEqual(record.workingTreeFiles, ["changed.ts"]);
   assert.equal(record.verifications[0].exitCode, 0);
   assert.equal((await listMemoryProvenance(root))[0].id, record.id);
-  assert.match(formatMemoryExplanation([record], "recalled decision"), /recalled decision[\s\S]*changed\.ts[\s\S]*npm test/);
+  assert.match(formatMemoryExplanation([record], "recalled decision"), /recalled decision[\s\S]*project-1[\s\S]*changed\.ts[\s\S]*npm test/);
 
   await clearMemoryProvenance(root);
   assert.deepEqual(await listMemoryProvenance(root), []);
