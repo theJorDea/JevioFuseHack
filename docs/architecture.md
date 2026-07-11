@@ -36,11 +36,12 @@ path-based алгоритмом, поэтому обновление не отр
 src/memory.ts реализует опциональный Cognee REST adapter. Markdown остаётся
 источником истины, а Cognee хранит проектный semantic index. Перед задачей host
 объединяет recall активной сессии с dataset-scoped graph recall и помечает
-результат как недоверенный исторический контекст. После успешного turn host
-сохраняет запрос и итоговый ответ с ID сессии; tool traces не индексируются.
+результат как недоверенный исторический контекст. После успешного turn CLI и Web
+host сохраняют запрос и итоговый ответ с ID сессии; tool traces не индексируются.
 Явная память проекта записывается напрямую в постоянный dataset, а команда
-`/memory improve` переносит данные активной сессии в граф. Ошибки Cognee не
-влияют на основной session workflow.
+`/memory improve` переносит данные активной сессии в граф. Web host запускает тот
+же bridge для предыдущей сессии при создании новой. Ошибки Cognee не влияют на
+основной session workflow и не блокируют смену сессии.
 
 src/memory-journal.ts хранит append-only JSONL provenance в
 `.jevio/memory-log.jsonl`. Запись содержит project ID, session ID, время,

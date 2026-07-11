@@ -2,7 +2,8 @@ import path from "node:path";
 import { runAgent, type AgentEvent, type AgentOptions } from "./agent.ts";
 import { loadConfig, setAllRolesModelConfig, setDefaultProviderConfig } from "./config.ts";
 import { listProviderModels } from "./setup.ts";
-import { CogneeMemory } from "./memory.ts";
+import { CogneeMemory, completedTurnMemory } from "./memory.ts";
+import { appendMemoryProvenance, type MemoryProvenanceRecord } from "./memory-journal.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import { createPlanDocument, writePlanDocument } from "./plan.ts";
 import { cogneeConfigForProject, loadProjectIdentity } from "./project-identity.ts";
@@ -31,6 +32,7 @@ import type {
   SpecialistRoleName,
   TodoItem,
   ToolContext,
+  VerificationRecord,
 } from "./types.ts";
 
 export type WebStreamEvent =
@@ -209,6 +211,21 @@ export class WebHost {
   }
 
   async newSession(): Promise<{ sessionId: string }> {
+    const previous = this.active.info;
+    if (previous.messageCount > 0) {
+      try {
+        const projectIdentity = await loadProjectIdentity(this.workspace);
+        const memory = new CogneeMemory(
+          cogneeConfigForProject(this.config.memory.cognee, projectIdentity),
+          this.workspace,
+        );
+        if (memory.enabled && this.config.memory.cognee.sessionAware) {
+          await memory.improve([previous.id]);
+        }
+      } catch {
+        // A remote memory outage must not prevent the user from starting a session.
+      }
+    }
     this.active = { info: await createSession(this.workspace), history: [], todos: [] };
     this.history = [];
     return { sessionId: this.active.info.id };
@@ -350,6 +367,7 @@ export class WebHost {
 
     const planMode = this.planMode;
     const mutationsBefore = this.workspaceMutationCount;
+    const turnVerifications: VerificationRecord[] = [];
 
     const context: ToolContext = {
       workspace: this.workspace,
@@ -411,6 +429,9 @@ export class WebHost {
       },
       onWorkspaceChange: () => {
         this.workspaceMutationCount += 1;
+      },
+      recordVerification: (record) => {
+        turnVerifications.push(record);
       },
       enterPlanMode: async (goal) => {
         planMode.active = true;
@@ -550,6 +571,30 @@ export class WebHost {
     }
 
     await appendSessionTurn(this.active.info, task, content);
+    let provenance: MemoryProvenanceRecord | undefined;
+    try {
+      provenance = await appendMemoryProvenance(this.workspace, {
+        kind: "completed_task",
+        projectId: projectIdentity.id,
+        sessionId: this.active.info.id,
+        request: task,
+        result: content,
+        verifications: turnVerifications,
+      });
+    } catch (error) {
+      emit({ type: "status", detail: `Memory provenance skipped: ${(error as Error).message}` });
+    }
+    if (cognee.enabled && this.config.memory.cognee.rememberCompletedTurns) {
+      try {
+        await cognee.remember(
+          completedTurnMemory(task, content, provenance),
+          this.active.info.id,
+          `turn-${this.active.info.messageCount}.md`,
+        );
+      } catch (error) {
+        emit({ type: "status", detail: `Cognee write skipped: ${(error as Error).message}` });
+      }
+    }
     emit({ type: "message", role: "assistant", content });
     emit({ type: "todos", items: this.active.todos });
     return content;

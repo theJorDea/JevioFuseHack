@@ -47,11 +47,12 @@
 ### P0 — session-aware память: реализовано
 
 Jevio передаёт `session_id` при автоматическом remember успешных задач и
-компактизаций. Перед задачей адаптер объединяет session recall с dataset-scoped
-graph recall, а `/memory improve` передаёт ID активной сессии для переноса её
-данных в постоянный граф. Результаты дедуплицируются и ограничиваются общим
-контекстным лимитом. Поведение включается параметром `sessionAware` и покрыто
-unit-тестом REST payload.
+компактизаций. Это действует и в CLI, и в Web host. Перед задачей адаптер
+объединяет session recall с dataset-scoped graph recall, `/memory improve`
+передаёт ID активной CLI-сессии, а Web host переносит предыдущую сессию при
+создании новой. Результаты дедуплицируются и ограничиваются общим контекстным
+лимитом. Поведение включается параметром `sessionAware` и покрыто тестами REST
+payload и Web lifecycle.
 
 Opt-in Cloud lifecycle test расширен сценарием session remember, немедленного
 session recall, bridge через `improve` и graph recall маркера из новой сессии.
