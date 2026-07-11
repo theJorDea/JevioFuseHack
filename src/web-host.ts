@@ -65,6 +65,8 @@ export class WebHost {
   private planMode: PlanModeState = { active: false };
   private pending = new Map<string, Pending>();
   private busy = false;
+  private activeTask: string | null = null;
+  private activeDetail: string | null = null;
   private projectMemory = "";
 
   private constructor(workspace: string) {
@@ -102,6 +104,8 @@ export class WebHost {
       model: role.model,
       todos: this.active.todos,
       busy: this.busy,
+      activeTask: this.activeTask,
+      activeDetail: this.activeDetail,
     };
   }
 
@@ -247,9 +251,26 @@ export class WebHost {
     }
 
     this.busy = true;
+    this.activeTask = text;
+    this.activeDetail = "Запуск…";
     const queue: WebStreamEvent[] = [];
     let notify: (() => void) | undefined;
     const push = (event: WebStreamEvent) => {
+      if (event.type === "status" || event.type === "thinking" || event.type === "tool" || event.type === "progress") {
+        const detail = String(event.detail || "").trim();
+        if (detail) {
+          const label = event.type === "tool"
+            ? "tool"
+            : event.type === "progress"
+              ? "…"
+              : ("role" in event ? event.role : "");
+          this.activeDetail = label ? `${label}: ${detail}` : detail;
+        }
+      } else if (event.type === "confirm") {
+        this.activeDetail = "Ожидается подтверждение";
+      } else if (event.type === "ask_user") {
+        this.activeDetail = "Ожидается ответ";
+      }
       queue.push(event);
       notify?.();
     };
@@ -266,17 +287,15 @@ export class WebHost {
       (error) => push({ type: "error", message: error instanceof Error ? error.message : String(error) }),
     ).finally(() => {
       this.busy = false;
+      this.activeTask = null;
+      this.activeDetail = null;
     });
 
-    try {
-      while (this.busy || queue.length) {
-        if (!queue.length) await wait();
-        while (queue.length) yield queue.shift()!;
-      }
-      await run;
-    } finally {
-      this.busy = false;
+    while (this.busy || queue.length) {
+      if (!queue.length) await wait();
+      while (queue.length) yield queue.shift()!;
     }
+    await run;
   }
 
   private async execute(task: string, emit: (event: WebStreamEvent) => void): Promise<string> {

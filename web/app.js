@@ -60,7 +60,12 @@ let state = {
   pendingId: null,
   pendingKind: null,
   settings: null,
+  serverBusy: false,
+  activeTask: null,
+  activeDetail: null,
 };
+
+let recoveryTimer = null;
 
 function loadPrefs() {
   try {
@@ -318,6 +323,9 @@ async function refreshModelSelect(provider, current) {
 async function refreshStatus() {
   const status = await api("/api/status");
   state.sessionId = status.sessionId;
+  state.serverBusy = Boolean(status.busy);
+  state.activeTask = status.activeTask || null;
+  state.activeDetail = status.activeDetail || null;
   els.title.textContent = status.title || "Сессия";
   els.subtitle.textContent = shortPath(status.workspace);
   els.meta.innerHTML = [
@@ -331,6 +339,7 @@ async function refreshStatus() {
   els.composerHint.textContent = `${status.provider} · ${status.model}`;
   renderTodos(status.todos);
   setPill(status.busy ? "busy" : "idle", status.busy ? "работает…" : "готов");
+  if (status.busy) setLive(status.activeDetail || "работает…");
   return status;
 }
 
@@ -374,8 +383,38 @@ async function refreshHistory() {
     if (message.role !== "user" && message.role !== "assistant") continue;
     appendBubble(message.role, message.content, { markdown: message.role === "assistant" });
   }
+  if (state.serverBusy && state.activeTask && !data.messages?.some(
+    (message) => message.role === "user" && message.content === state.activeTask,
+  )) {
+    appendBubble("user", state.activeTask);
+    setLive(state.activeDetail || "работает…");
+  }
   showEmptyIfNeeded();
   els.chat.scrollTop = els.chat.scrollHeight;
+}
+
+function startRecoveryPolling() {
+  if (recoveryTimer) return;
+  const poll = async () => {
+    recoveryTimer = null;
+    try {
+      const status = await refreshStatus();
+      if (status.busy) {
+        recoveryTimer = window.setTimeout(poll, 1200);
+        return;
+      }
+      state.busy = false;
+      els.send.disabled = false;
+      setLive("");
+      await refreshHistory();
+      await refreshSessions();
+      els.input.focus();
+    } catch (error) {
+      console.error("Failed to recover active chat", error);
+      recoveryTimer = window.setTimeout(poll, 2000);
+    }
+  };
+  recoveryTimer = window.setTimeout(poll, 1200);
 }
 
 function openModal({ title, body, options = [], kind, id, kicker }) {
@@ -667,9 +706,14 @@ function handleEvent(event) {
 async function boot() {
   applyPrefs();
   try {
-    await refreshStatus();
+    const status = await refreshStatus();
+    if (status.busy) {
+      state.busy = true;
+      els.send.disabled = true;
+    }
     await refreshHistory();
     await refreshSessions();
+    if (status.busy) startRecoveryPolling();
   } catch (error) {
     hideEmpty();
     appendBubble("system", `Не удалось подключиться: ${error.message}`);
