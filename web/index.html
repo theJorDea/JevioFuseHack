@@ -25,7 +25,7 @@
         </button>
       </div>
 
-      <button type="button" id="btn-new" class="btn primary block">
+      <button type="button" id="btn-new" class="btn primary block" title="Новая сессия" aria-label="Новая сессия">
         <span class="plus">+</span> Новая сессия
       </button>
 
@@ -172,7 +172,7 @@
             <div class="switch-title">YOLO</div>
             <div class="switch-desc">Не спрашивать подтверждения на запись файлов и shell</div>
           </div>
-          <input type="checkbox" id="yolo" class="switch" />
+          <input type="checkbox" id="yolo" class="switch yolo-switch" />
         </label>
       </section>
 
@@ -186,9 +186,7 @@
           <input type="checkbox" id="set-apply-default-model" />
           <span>Подставить модель по умолчанию провайдера всем ролям</span>
         </label>
-        <button type="button" id="btn-apply-provider" class="btn secondary block">Применить провайдер</button>
-
-        <label class="field" style="margin-top:14px">
+        <label class="field model-field">
           <span>Модель (всем ролям)</span>
           <div class="row">
             <select id="set-model"></select>
@@ -196,15 +194,17 @@
           </div>
         </label>
         <label class="field">
-          <span>Или свой id модели</span>
-          <input type="text" id="set-model-custom" placeholder="например qwen3-coder:30b" />
+          <span>Свой ID модели</span>
+          <input type="text" id="set-model-custom" placeholder="Выбери «Свой ID» выше" disabled />
         </label>
-        <button type="button" id="btn-apply-model" class="btn primary block">Применить модель</button>
+        <p class="field-help">Выбери модель из списка или включи режим «Свой ID». Изменения применятся ко всем ролям одной кнопкой.</p>
+        <button type="button" id="btn-apply-config" class="btn primary block">Сохранить конфигурацию</button>
         <p id="settings-msg" class="settings-msg muted"></p>
       </section>
 
       <section class="card">
-        <h3>Роли</h3>
+        <h3>Текущая конфигурация ролей</h3>
+        <p class="card-help">Роли используют назначенные провайдер и модель. Отдельное переопределение доступно через конфигурацию проекта.</p>
         <div id="roles-table" class="roles-table"></div>
       </section>
 

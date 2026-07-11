@@ -39,11 +39,10 @@ const els = {
   settingsClose: $("settings-close"),
   setProvider: $("set-provider"),
   setApplyDefaultModel: $("set-apply-default-model"),
-  btnApplyProvider: $("btn-apply-provider"),
   setModel: $("set-model"),
   setModelCustom: $("set-model-custom"),
   btnRefreshModels: $("btn-refresh-models"),
-  btnApplyModel: $("btn-apply-model"),
+  btnApplyConfig: $("btn-apply-config"),
   settingsMsg: $("settings-msg"),
   rolesTable: $("roles-table"),
   envInfo: $("env-info"),
@@ -85,6 +84,7 @@ let state = {
   abortController: null,
   stopRequested: false,
   attachments: [],
+  localConfirmAction: null,
 };
 
 let recoveryTimer = null;
@@ -364,12 +364,22 @@ async function loadSettingsPanel() {
 async function refreshModelSelect(provider, current) {
   const data = await api(`/api/models?provider=${encodeURIComponent(provider || "")}`);
   const models = data.models?.length ? data.models : [current].filter(Boolean);
-  els.setModel.innerHTML = models.map((m) =>
-    `<option value="${escapeHtml(m)}" ${m === (current || data.current) ? "selected" : ""}>${escapeHtml(m)}</option>`,
-  ).join("");
-  if (!models.includes(current) && current) {
-    els.setModelCustom.value = current;
-  }
+  const activeModel = current || data.current || models[0] || "";
+  const customModel = Boolean(activeModel && !models.includes(activeModel));
+  els.setModel.innerHTML = [
+    ...models.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`),
+    `<option value="__custom__">Свой ID модели…</option>`,
+  ].join("");
+  els.setModel.value = customModel ? "__custom__" : activeModel;
+  els.setModelCustom.value = customModel ? activeModel : "";
+  syncCustomModelInput();
+}
+
+function syncCustomModelInput() {
+  const custom = els.setModel.value === "__custom__";
+  els.setModelCustom.disabled = !custom;
+  els.setModelCustom.placeholder = custom ? "например qwen3-coder:30b" : "Выбери «Свой ID» выше";
+  if (!custom) els.setModelCustom.value = "";
 }
 
 async function refreshStatus() {
@@ -503,6 +513,7 @@ function startRecoveryPolling() {
 }
 
 function openModal({ title, body, options = [], kind, id, kicker }) {
+  state.localConfirmAction = null;
   state.pendingId = id;
   state.pendingKind = kind;
   els.modalKicker.textContent = kicker || (kind === "ask" ? "Вопрос" : "Подтверждение");
@@ -539,6 +550,18 @@ function openModal({ title, body, options = [], kind, id, kicker }) {
   els.modal.classList.remove("hidden");
 }
 
+function openLocalConfirm({ title, body, kicker, onConfirm }) {
+  openModal({ title, body, kind: "local-confirm", kicker });
+  state.localConfirmAction = onConfirm;
+}
+
+function closeModal() {
+  els.modal.classList.add("hidden");
+  state.pendingId = null;
+  state.pendingKind = null;
+  state.localConfirmAction = null;
+}
+
 async function answerPending(answer) {
   if (!state.pendingId) return;
   const id = state.pendingId;
@@ -552,9 +575,22 @@ async function answerPending(answer) {
 }
 
 // —— events ——
-els.modalOk.addEventListener("click", () => answerPending(true));
-els.modalCancel.addEventListener("click", () =>
-  answerPending(state.pendingKind === "confirm" ? false : "[cancelled]"));
+els.modalOk.addEventListener("click", async () => {
+  if (state.localConfirmAction) {
+    const action = state.localConfirmAction;
+    closeModal();
+    await action();
+    return;
+  }
+  await answerPending(true);
+});
+els.modalCancel.addEventListener("click", async () => {
+  if (state.localConfirmAction) {
+    closeModal();
+    return;
+  }
+  await answerPending(state.pendingKind === "confirm" ? false : "[cancelled]");
+});
 els.modalCustomSend.addEventListener("click", () => {
   const value = els.modalCustom.value.trim();
   if (value) answerPending(value);
@@ -567,7 +603,25 @@ els.modalCustom.addEventListener("keydown", (event) => {
 });
 
 els.yolo.addEventListener("change", async () => {
-  await api("/api/yolo", { method: "POST", body: JSON.stringify({ on: els.yolo.checked }) });
+  if (els.yolo.checked) {
+    els.yolo.checked = false;
+    openLocalConfirm({
+      kicker: "Опасный режим",
+      title: "Включить YOLO?",
+      body: "Агент сможет выполнять shell-команды и записывать файлы без вашего подтверждения. Включайте режим только для доверенного проекта.",
+      onConfirm: async () => {
+        try {
+          await api("/api/yolo", { method: "POST", body: JSON.stringify({ on: true }) });
+          els.yolo.checked = true;
+          await refreshStatus();
+        } catch (error) {
+          setSettingsMsg(error.message, "err");
+        }
+      },
+    });
+    return;
+  }
+  await api("/api/yolo", { method: "POST", body: JSON.stringify({ on: false }) });
   await refreshStatus();
 });
 els.mode.addEventListener("change", async () => {
@@ -630,6 +684,7 @@ els.setProvider.addEventListener("change", async () => {
     setSettingsMsg(error.message, "err");
   }
 });
+els.setModel.addEventListener("change", syncCustomModelInput);
 
 els.btnRefreshModels.addEventListener("click", async () => {
   try {
@@ -641,42 +696,44 @@ els.btnRefreshModels.addEventListener("click", async () => {
   }
 });
 
-els.btnApplyProvider.addEventListener("click", async () => {
-  try {
-    setSettingsMsg("Применяю провайдер…");
-    const result = await api("/api/settings/provider", {
-      method: "POST",
-      body: JSON.stringify({
-        name: els.setProvider.value,
-        applyDefaultModel: els.setApplyDefaultModel.checked,
-      }),
-    });
-    setSettingsMsg(result.message || "Готово", "ok");
-    await loadSettingsPanel();
-    await refreshStatus();
-  } catch (error) {
-    setSettingsMsg(error.message, "err");
-  }
-});
-
-els.btnApplyModel.addEventListener("click", async () => {
-  const model = els.setModelCustom.value.trim() || els.setModel.value;
-  if (!model) {
-    setSettingsMsg("Укажи модель", "err");
+els.btnApplyConfig.addEventListener("click", async () => {
+  const provider = els.setProvider.value;
+  const model = els.setModel.value === "__custom__" ? els.setModelCustom.value.trim() : els.setModel.value;
+  const currentProvider = state.settings?.currentProvider;
+  const currentModel = state.settings?.currentModel;
+  const providerChanged = provider !== currentProvider;
+  const modelChanged = Boolean(model) && model !== currentModel;
+  if (els.setModel.value === "__custom__" && !model) {
+    setSettingsMsg("Укажи свой ID модели", "err");
+    els.setModelCustom.focus();
     return;
   }
+  if (!providerChanged && !modelChanged && !els.setApplyDefaultModel.checked) {
+    setSettingsMsg("Изменений нет");
+    return;
+  }
+  els.btnApplyConfig.disabled = true;
   try {
-    setSettingsMsg("Применяю модель…");
-    const result = await api("/api/settings/model", {
-      method: "POST",
-      body: JSON.stringify({ model, provider: els.setProvider.value }),
-    });
-    setSettingsMsg(result.message || "Готово", "ok");
-    els.setModelCustom.value = "";
+    if (providerChanged || els.setApplyDefaultModel.checked) {
+      await api("/api/settings/provider", {
+        method: "POST",
+        body: JSON.stringify({ name: provider, applyDefaultModel: els.setApplyDefaultModel.checked }),
+      });
+    }
+    if (modelChanged) {
+      await api("/api/settings/model", {
+        method: "POST",
+        body: JSON.stringify({ model, provider }),
+      });
+    }
+    setSettingsMsg("Конфигурация сохранена", "ok");
+    els.setApplyDefaultModel.checked = false;
     await loadSettingsPanel();
     await refreshStatus();
   } catch (error) {
     setSettingsMsg(error.message, "err");
+  } finally {
+    els.btnApplyConfig.disabled = false;
   }
 });
 
