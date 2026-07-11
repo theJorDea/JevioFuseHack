@@ -206,6 +206,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
   let textToolCallsExecuted = 0;
   let emptyTextContinuations = 0;
   let malformedTextToolAttempts = 0;
+  let textToolPhases = 0;
+  const completedTextTools: string[] = [];
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
@@ -263,6 +265,21 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
         continue;
       }
       if (!content) {
+        if (usesTextTools && textToolCallsExecuted > 0 && textToolPhases < 2) {
+          textToolPhases += 1;
+          emptyTextContinuations = 0;
+          malformedTextToolAttempts = 0;
+          const completed = completedTextTools.slice(-8).join(", ") || "the existing workspace files";
+          messages.splice(0, messages.length,
+            { role: "system", content: buildSystemPrompt(options.role, toolContext) },
+            ...previousHistory,
+            {
+              role: "user",
+              content: `${options.task}\n\nContinue implementation in a fresh model phase. Previous text-tool calls completed: ${completed}. Inspect the current workspace and create the remaining files. Do not repeat completed files. ${textToolInstructions}`,
+            },
+          );
+          continue;
+        }
         throw new Error(usesTextTools && textToolCallsExecuted > 0
           ? `${options.role} model repeatedly returned an empty response after tool execution.`
           : `${options.role} model returned an empty response.`);
@@ -286,6 +303,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
       let failed = false;
       try {
         const input = parseArguments(call.arguments);
+        if (usesTextTools) completedTextTools.push(`${call.name}${call.name === "write_file" ? `:${String(input.path ?? "")}` : ""}`);
         if (call.name === "web_search") {
           webSearchCalls += 1;
           if (webSearchCalls > 2) throw new Error("Web search limit reached for this task. Use the existing results or continue implementation.");
