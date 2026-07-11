@@ -54,6 +54,11 @@ session ID, score и timestamp, когда эти поля вернул Cognee. 
 очищает журнал вместе с Markdown-памятью и dataset Cognee, но сохраняет identity
 проекта.
 
+Если фоновый Cloud `remember` возвращает `datasetId` без `dataId`, адаптер
+опрашивает dataset data API, сопоставляет нормализованное имя файла и подтверждает
+кандидата SHA-256 исходного raw content. Поэтому granular delete не зависит от
+того, вернул ли конкретный tenant per-item metadata в начальном ответе.
+
 Связь `supersedes` в provenance-журнале является append-only tombstone: новая
 запись указывает ID заменённых записей. CLI-команда `/memory replace` обновляет
 локальный `MEMORY.md`, удаляет адресуемый старый Cognee source по `dataId`,

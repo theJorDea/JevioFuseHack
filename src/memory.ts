@@ -118,6 +118,18 @@ function datasetRecords(value: unknown): Array<{ id: string; name: string }> {
   return records;
 }
 
+function dataRecords(value: unknown): Array<{ id: string; name?: string; createdAt?: string }> {
+  return nestedRecords(value).flatMap((item) => {
+    const id = optionalString(item, ["id", "data_id", "dataId"]);
+    if (!id) return [];
+    return [{
+      id,
+      name: optionalString(item, ["name", "file_name", "fileName", "label"]),
+      createdAt: optionalString(item, ["created_at", "createdAt"]),
+    }];
+  });
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -182,6 +194,40 @@ export class CogneeMemory {
     } catch {
       return text;
     }
+  }
+
+  private async resolveRememberedDataId(
+    datasetId: string,
+    filename: string,
+    contentHash: string,
+    attempts = 12,
+  ): Promise<string | undefined> {
+    const expectedName = filename.replace(/\.[^.]+$/, "").trim().toLocaleLowerCase();
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const response = await this.request(`/api/v1/datasets/${encodeURIComponent(datasetId)}/data`, {
+          headers: this.headers(),
+        });
+        const candidates = dataRecords(response)
+          .filter((item) => !expectedName || item.name?.toLocaleLowerCase() === expectedName)
+          .sort((left, right) => Date.parse(right.createdAt ?? "") - Date.parse(left.createdAt ?? ""));
+        for (const candidate of candidates) {
+          try {
+            const raw = await this.request(`/api/v1/datasets/${encodeURIComponent(datasetId)}/data/${encodeURIComponent(candidate.id)}/raw`, {
+              headers: this.headers(),
+            });
+            if (typeof raw === "string" && createHash("sha256").update(raw.trim()).digest("hex") === contentHash) return candidate.id;
+          } catch {
+            // Some Cognee deployments do not expose raw data; a unique filename is still addressable.
+          }
+        }
+        if (candidates.length === 1) return candidates[0].id;
+      } catch {
+        // The data row may appear shortly after the background remember request returns.
+      }
+      if (attempt < attempts - 1) await delay(250 * Math.min(attempt + 1, 4));
+    }
+    return undefined;
   }
 
   async status(): Promise<MemoryStatus> {
@@ -337,7 +383,11 @@ export class CogneeMemory {
     form.append("datasetName", this.dataset);
     form.append("run_in_background", "true");
     const response = await this.request("/api/v1/remember", { method: "POST", headers: this.headers(), body: form });
-    return writeReceipt(response, contentHash);
+    const receipt = writeReceipt(response, contentHash);
+    if (!receipt.dataId && receipt.datasetId) {
+      receipt.dataId = await this.resolveRememberedDataId(receipt.datasetId, filename, contentHash);
+    }
+    return receipt;
   }
 
   async forgetData(dataId: string, datasetId?: string): Promise<boolean> {

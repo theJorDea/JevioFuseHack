@@ -73,6 +73,28 @@ test("Cognee remember captures addressable remote metadata", async () => {
   });
 });
 
+test("Cognee remember resolves dataId from dataset data when the Cloud response omits it", async () => {
+  const urls: string[] = [];
+  const memory = new CogneeMemory(config(), process.cwd(), async (input) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.endsWith("/remember")) {
+      return new Response(JSON.stringify({ status: "running", dataset_id: "dataset-1" }), { status: 200 });
+    }
+    if (url.endsWith("/datasets/dataset-1/data")) {
+      return new Response(JSON.stringify([{ id: "data-1", name: "decision", createdAt: "2026-07-11T00:00:00Z" }]), { status: 200 });
+    }
+    return new Response("durable decision", { status: 200 });
+  });
+  const receipt = await memory.remember("durable decision", undefined, "decision.md");
+  assert.equal(receipt?.dataId, "data-1");
+  assert.deepEqual(urls.map((url) => url.split("/api/v1/")[1]), [
+    "remember",
+    "datasets/dataset-1/data",
+    "datasets/dataset-1/data/data-1/raw",
+  ]);
+});
+
 test("Cognee session-aware memory stores the session and combines session with graph recall", async () => {
   const options = config();
   options.sessionAware = true;
