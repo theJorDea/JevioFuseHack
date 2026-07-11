@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { VerificationRecord } from "./types.ts";
+import type { MemoryRecallSnapshot, VerificationRecord } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 const MAX_REQUEST_CHARACTERS = 2_000;
@@ -109,10 +109,36 @@ function oneLine(value: string, limit: number): string {
   return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}…`;
 }
 
-export function formatMemoryExplanation(records: MemoryProvenanceRecord[], recalledMemory?: string): string {
-  const recall = recalledMemory?.trim()
+export function formatMemoryExplanation(
+  records: MemoryProvenanceRecord[],
+  recalledMemory?: string,
+  snapshot?: MemoryRecallSnapshot,
+): string {
+  let recall = recalledMemory?.trim()
     ? `Последний recall:\n${recalledMemory.trim().slice(0, 2_000)}`
     : "Последний recall: релевантная память не найдена.";
+  if (snapshot) {
+    const header = [
+      `Запрос: ${oneLine(snapshot.query, 300)}`,
+      `Dataset: ${snapshot.dataset}`,
+      `Session: ${snapshot.sessionId ?? "не указана"}`,
+      `Время: ${snapshot.recalledAt}`,
+    ].join("\n");
+    const fragments = snapshot.items.length
+      ? snapshot.items.map((item, index) => {
+        const metadata = [
+          `source=${item.source}`,
+          item.dataset ? `dataset=${item.dataset}` : undefined,
+          item.datasetId ? `datasetId=${item.datasetId}` : undefined,
+          item.sessionId ? `session=${item.sessionId}` : undefined,
+          item.score !== undefined ? `score=${item.score}` : undefined,
+          item.timestamp ? `timestamp=${item.timestamp}` : undefined,
+        ].filter(Boolean).join(" · ");
+        return `${index + 1}. ${metadata}\n   ${oneLine(item.text, 500)}`;
+      }).join("\n\n")
+      : "Фрагменты: совпадений нет.";
+    recall = `Последний recall:\n${header}\n\n${fragments}`;
+  }
   if (!records.length) return `${recall}\n\nЛокальный журнал provenance пуст.`;
   const entries = records.map((record, index) => {
     const files = record.workingTreeFiles.length ? record.workingTreeFiles.join(", ") : "нет";

@@ -36,6 +36,21 @@ test("memory provenance records observable repository and verification data", as
   assert.equal(record.verifications[0].exitCode, 0);
   assert.equal((await listMemoryProvenance(root))[0].id, record.id);
   assert.match(formatMemoryExplanation([record], "recalled decision"), /recalled decision[\s\S]*project-1[\s\S]*changed\.ts[\s\S]*npm test/);
+  const explained = formatMemoryExplanation([record], "recalled decision", {
+    query: "why?",
+    dataset: "project-memory",
+    sessionId: "session-1",
+    recalledAt: "2026-07-11T00:00:00.000Z",
+    text: "recalled decision",
+    items: [{
+      text: "recalled decision",
+      source: "graph",
+      dataset: "project-memory",
+      score: 0.87,
+      timestamp: "2026-07-10T00:00:00.000Z",
+    }],
+  });
+  assert.match(explained, /Запрос: why\?[\s\S]*source=graph[\s\S]*score=0\.87[\s\S]*timestamp=2026-07-10/);
 
   await clearMemoryProvenance(root);
   assert.deepEqual(await listMemoryProvenance(root), []);

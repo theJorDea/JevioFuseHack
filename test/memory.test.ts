@@ -182,6 +182,31 @@ test("Cognee recall reads context-shaped responses from the documented API", asy
   assert.equal(await memory.recall("documented response"), "documented context");
 });
 
+test("Cognee recall preserves explainable source metadata without changing model context", async () => {
+  const memory = new CogneeMemory(config(), process.cwd(), async () => new Response(JSON.stringify([
+    {
+      text: "ranked graph decision",
+      source: "graph",
+      score: 0.91,
+      dataset_name: "test-project",
+      dataset_id: "dataset-1",
+      created_at: "2026-07-11T00:00:00.000Z",
+    },
+  ]), { status: 200 }));
+
+  assert.equal(await memory.recall("why?", "session-explain"), "ranked graph decision");
+  assert.deepEqual(memory.lastRecall?.items, [{
+    text: "ranked graph decision",
+    source: "graph",
+    dataset: "test-project",
+    datasetId: "dataset-1",
+    sessionId: "session-explain",
+    score: 0.91,
+    timestamp: "2026-07-11T00:00:00.000Z",
+  }]);
+  assert.equal(memory.lastRecall?.query, "why?");
+});
+
 test("Cognee forget deletes only the matching project dataset", async () => {
   const urls: string[] = [];
   const memory = new CogneeMemory(config(), process.cwd(), async (input) => {

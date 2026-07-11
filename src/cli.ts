@@ -1675,7 +1675,7 @@ ${agentTask}`;
  }
  if (sub === "explain") {
  const records = await listMemoryProvenance(options.workspace, 5);
- return { output: formatMemoryExplanation(records, context.retrievedMemory) };
+ return { output: formatMemoryExplanation(records, context.retrievedMemory, cogneeMemory.lastRecall) };
  }
  if (sub === "status") {
  const status = await cogneeMemory.status();

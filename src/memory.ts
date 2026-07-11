@@ -1,4 +1,4 @@
-import type { CogneeMemoryConfig } from "./types.ts";
+import type { CogneeMemoryConfig, MemoryRecallItem, MemoryRecallSnapshot } from "./types.ts";
 import type { MemoryProvenanceRecord } from "./memory-journal.ts";
 import { legacyProjectDataset } from "./project-identity.ts";
 
@@ -23,16 +23,33 @@ export interface MemoryStatus {
   pipelineStatus?: string;
 }
 
-function responseStrings(value: unknown): string[] {
-  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
-  if (Array.isArray(value)) return value.flatMap(responseStrings);
+function optionalString(item: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    if (typeof item[key] === "string" && item[key].trim()) return item[key].trim();
+  }
+  return undefined;
+}
+
+function responseItems(value: unknown, defaults: Pick<MemoryRecallItem, "source"> & Partial<MemoryRecallItem>): MemoryRecallItem[] {
+  if (typeof value === "string") return value.trim() ? [{ text: value.trim(), ...defaults }] : [];
+  if (Array.isArray(value)) return value.flatMap((item) => responseItems(item, defaults));
   if (!value || typeof value !== "object") return [];
   const item = value as Record<string, unknown>;
-  for (const key of ["text", "content", "context", "summary", "answer", "search_result"]) {
-    if (typeof item[key] === "string" && item[key].trim()) return [item[key].trim()];
+  const text = optionalString(item, ["text", "content", "context", "summary", "answer", "search_result"]);
+  if (text) {
+    const score = typeof item.score === "number" && Number.isFinite(item.score) ? item.score : undefined;
+    return [{
+      text,
+      source: optionalString(item, ["source", "_source"]) ?? defaults.source,
+      dataset: optionalString(item, ["dataset_name", "datasetName", "dataset"]) ?? defaults.dataset,
+      datasetId: optionalString(item, ["dataset_id", "datasetId"]) ?? defaults.datasetId,
+      sessionId: optionalString(item, ["session_id", "sessionId"]) ?? defaults.sessionId,
+      ...(score !== undefined ? { score } : defaults.score !== undefined ? { score: defaults.score } : {}),
+      timestamp: optionalString(item, ["time", "timestamp", "created_at", "createdAt"]) ?? defaults.timestamp,
+    }];
   }
   for (const key of ["results", "data", "items", "chunks", "raw", "structured"]) {
-    if (item[key] !== undefined) return responseStrings(item[key]);
+    if (item[key] !== undefined) return responseItems(item[key], defaults);
   }
   return [];
 }
@@ -66,6 +83,7 @@ export class CogneeMemory {
   private readonly baseUrl: string;
   private readonly config: CogneeMemoryConfig;
   private readonly fetcher: Fetcher;
+  private latestRecall?: MemoryRecallSnapshot;
 
   constructor(
     config: CogneeMemoryConfig,
@@ -81,6 +99,10 @@ export class CogneeMemory {
 
   get enabled(): boolean {
     return this.config.enabled;
+  }
+
+  get lastRecall(): MemoryRecallSnapshot | undefined {
+    return this.latestRecall ? structuredClone(this.latestRecall) : undefined;
   }
 
   private headers(json = false): Headers {
@@ -141,21 +163,32 @@ export class CogneeMemory {
   }
 
   async recall(query: string, sessionId?: string): Promise<string> {
-    if (!this.enabled || !query.trim()) return "";
-    const responses: unknown[] = [];
+    const normalizedQuery = query.trim();
+    this.latestRecall = undefined;
+    if (!this.enabled || !normalizedQuery) return "";
+    this.latestRecall = {
+      query: normalizedQuery,
+      dataset: this.dataset,
+      ...(sessionId?.trim() ? { sessionId: sessionId.trim() } : {}),
+      recalledAt: new Date().toISOString(),
+      text: "",
+      items: [],
+    };
+    const items: MemoryRecallItem[] = [];
     if (this.config.sessionAware && sessionId?.trim()) {
       try {
-        responses.push(await this.request("/api/v1/recall", {
+        const response = await this.request("/api/v1/recall", {
           method: "POST",
           headers: this.headers(true),
           body: JSON.stringify({
-            query: query.trim(),
+            query: normalizedQuery,
             top_k: Math.floor(this.config.maxResults),
             only_context: true,
             scope: "session",
             session_id: sessionId.trim(),
           }),
-        }));
+        });
+        items.push(...responseItems(response, { source: "session", sessionId: sessionId.trim() }));
       } catch {
         // Session memory is an optional fast path. Graph recall remains authoritative.
       }
@@ -167,7 +200,7 @@ export class CogneeMemory {
           method: "POST",
           headers: this.headers(true),
           body: JSON.stringify({
-            query: query.trim(),
+            query: normalizedQuery,
             top_k: Math.floor(this.config.maxResults),
             only_context: true,
             scope: "auto",
@@ -195,7 +228,7 @@ export class CogneeMemory {
             method: "POST",
             headers: this.headers(true),
             body: JSON.stringify({
-              query: query.trim(),
+              query: normalizedQuery,
               search_type: "CHUNKS",
               datasets: [this.dataset],
               ...(sessionId ? { session_id: sessionId } : {}),
@@ -210,9 +243,22 @@ export class CogneeMemory {
         throw error;
       }
     }
-    responses.push(response);
-    const unique = [...new Set(responseStrings(responses))].slice(0, Math.floor(this.config.maxResults));
-    return unique.join("\n\n---\n\n").slice(0, Math.floor(this.config.maxContextCharacters));
+    items.push(...responseItems(response, {
+      source: "graph",
+      dataset: this.dataset,
+      ...(sessionId?.trim() ? { sessionId: sessionId.trim() } : {}),
+    }));
+    const seen = new Set<string>();
+    const unique = items.filter((item) => {
+      if (seen.has(item.text)) return false;
+      seen.add(item.text);
+      return true;
+    }).slice(0, Math.floor(this.config.maxResults));
+    const text = unique.map((item) => item.text).join("\n\n---\n\n")
+      .slice(0, Math.floor(this.config.maxContextCharacters));
+    this.latestRecall.text = text;
+    this.latestRecall.items = unique;
+    return text;
   }
 
   async remember(content: string, sessionId?: string, filename = "memory.md"): Promise<void> {

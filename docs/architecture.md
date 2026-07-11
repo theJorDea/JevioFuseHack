@@ -47,8 +47,10 @@ src/memory-journal.ts хранит append-only JSONL provenance в
 `.jevio/memory-log.jsonl`. Запись содержит project ID, session ID, время,
 repository HEAD, текущие dirty paths и только реально выполненные test-команды с
 exit code. Этот журнал не передаётся модели целиком; `/memory explain` показывает
-последние записи и фактически извлечённый контекст. `/memory clear` очищает журнал
-вместе с Markdown-памятью и dataset Cognee, но сохраняет identity проекта.
+последние записи и metadata фактически извлечённых фрагментов: source, dataset,
+session ID, score и timestamp, когда эти поля вернул Cognee. `/memory clear`
+очищает журнал вместе с Markdown-памятью и dataset Cognee, но сохраняет identity
+проекта.
 
 src/compaction.ts оценивает размер истории, вызывает отдельную роль compactor и
 строит новый model-visible context из summary и нескольких последних сообщений.

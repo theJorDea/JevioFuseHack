@@ -68,6 +68,25 @@ export interface CogneeMemoryConfig {
  rememberCompactions: boolean;
 }
 
+export interface MemoryRecallItem {
+ text: string;
+ source: string;
+ dataset?: string;
+ datasetId?: string;
+ sessionId?: string;
+ score?: number;
+ timestamp?: string;
+}
+
+export interface MemoryRecallSnapshot {
+ query: string;
+ dataset: string;
+ sessionId?: string;
+ recalledAt: string;
+ text: string;
+ items: MemoryRecallItem[];
+}
+
 export type PartialJevioConfig = {
  defaultProvider?: string;
  providers?: Record<string, Partial<ProviderConfig>>;

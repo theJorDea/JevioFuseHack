@@ -120,13 +120,13 @@ OpenTelemetry уже определяет соглашения для
 Это позволит подключить Jaeger, Grafana Tempo, Honeycomb или другой OTLP backend
 без зависимости core от конкретного продукта.
 
-### P1 — provenance результатов recall
+### P1 — provenance результатов recall: реализовано
 
-`responseStrings()` превращает разные ответы Cognee в строки и теряет source,
-score, QA ID и metadata. Для режима объяснимости нужен тип `RetrievedMemoryItem`
-с текстом, источником, dataset, session, score и timestamp. В prompt можно оставить
-только текст, но `/memory explain` должен показывать, почему фрагмент попал в
-контекст и откуда он взят.
+Адаптер нормализует разные ответы Cognee в структурированные фрагменты с текстом,
+source, dataset, dataset ID, session ID, score и timestamp. Для совместимости
+model-visible контекст остаётся ограниченной строкой, а последний структурированный
+snapshot хранится только в host и отображается через `/memory explain`. Поля,
+которых нет в ответе конкретного backend или legacy API, не выдумываются.
 
 ## Рекомендуемые интеграции
 
