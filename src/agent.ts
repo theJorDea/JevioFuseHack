@@ -113,8 +113,23 @@ function parseArguments(raw: string): Record<string, unknown> {
 }
 
 export function parseFallbackToolCalls(content: string, allowedNames: Set<string>): ToolCall[] {
+  if (allowedNames.has("write_file")) {
+    const write = /<jevio_write\s+path=(["'])([^"']+)\1\s*>([\s\S]*?)<\/jevio_write>/iu.exec(content);
+    if (write) {
+      const fileContent = write[3].replace(/^\r?\n/, "").replace(/\r?\n$/, "");
+      return [{
+        id: "fallback_write_0",
+        name: "write_file",
+        arguments: JSON.stringify({ path: write[2], content: fileContent }),
+      }];
+    }
+  }
   const fenced = [...content.matchAll(/```(?:json|jevio-tools)?\s*([\s\S]*?)```/giu)].map((match) => match[1].trim());
-  for (const candidate of [content.trim(), ...fenced]) {
+  const firstBrace = content.indexOf("{");
+  const lastBrace = content.lastIndexOf("}");
+  const embedded = firstBrace >= 0 && lastBrace > firstBrace ? content.slice(firstBrace, lastBrace + 1) : "";
+  const tagged = [...content.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/giu)].map((match) => match[1].trim());
+  for (const candidate of [content.trim(), ...fenced, ...tagged, embedded]) {
     if (!candidate.includes("jevio_tool_calls")) continue;
     try {
       const parsed = JSON.parse(candidate) as { jevio_tool_calls?: unknown };
@@ -168,10 +183,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     },
   };
   const userMessage: ChatMessage = { role: "user", content: options.task };
-  const modelUserMessage: ChatMessage = toolMode === "text" && options.role === "coder"
+  const tools = toolsForRole(options.role);
+  const usesTextTools = toolMode === "text" && tools.length > 0;
+  const textToolInstructions = options.role === "coder"
+    ? `This provider uses Jevio's text tool protocol. Return at most one tool call per response and no explanatory text. For write_file, prefer this format because file content needs no JSON escaping:\n<jevio_write path="relative/path">\ncomplete file content\n</jevio_write>\nFor other tools use: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue with the next tool call or a concise final summary.`
+    : `This provider uses Jevio's text tool protocol. To call a tool, return ONLY JSON without Markdown and at most one call: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue normally.`;
+  const modelUserMessage: ChatMessage = usesTextTools
     ? {
       role: "user",
-      content: `${options.task}\n\nThis provider uses Jevio's text tool protocol. To use a tool, return ONLY JSON without Markdown: {"jevio_tool_calls":[{"name":"write_file","arguments":{"path":"relative/path","content":"complete file content"}}]}. Return at most one tool call per response. After Jevio executes it, continue with the next tool call or a concise final summary.`,
+      content: `${options.task}\n\n${textToolInstructions}`,
     }
     : userMessage;
   const messages: ChatMessage[] = [
@@ -179,8 +199,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     ...previousHistory,
     modelUserMessage,
   ];
-  const tools = toolsForRole(options.role);
-  const requestTools = toolMode === "text" ? [] : tools;
+  const requestTools = usesTextTools ? [] : tools;
   const maxTurns = options.maxTurns ?? options.config.agent.maxTurns;
   let webSearchCalls = 0;
 

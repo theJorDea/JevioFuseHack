@@ -762,7 +762,9 @@ async function main(): Promise<void> {
         history,
         onEvent: reportEvent,
       });
-      if (workspaceMutationCount === mutationsBefore) throw new Error("Coder дважды завершил работу, не изменив файлы проекта.");
+      if (workspaceMutationCount === mutationsBefore) {
+        throw new Error(`Coder дважды завершил работу, не изменив файлы проекта. Последний ответ: ${result.content.slice(0, 1_000)}`);
+      }
     }
     if (role === "orchestrator" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
       reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because the workspace was not modified." });
@@ -775,7 +777,7 @@ async function main(): Promise<void> {
         onEvent: reportEvent,
       });
       if (workspaceMutationCount === mutationsBefore) {
-        throw new Error("Coder finished without modifying the workspace.");
+        throw new Error(`Coder завершил работу, не изменив файлы проекта. Ответ модели: ${coder.content.slice(0, 1_000)}`);
       }
       history = coder.history;
       await recordSuccessfulTurn(task, coder.content);

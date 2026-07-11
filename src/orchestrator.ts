@@ -83,7 +83,7 @@ async function implementWithRecovery(
     });
     turns += result.turns;
     if (options.getWorkspaceMutationCount?.() === mutationsBefore) {
-      throw new Error("Coder дважды завершил работу, не изменив файлы проекта.");
+      throw new Error(`Coder дважды завершил работу, не изменив файлы проекта. Последний ответ: ${result.content.slice(0, 1_000)}`);
     }
   }
 

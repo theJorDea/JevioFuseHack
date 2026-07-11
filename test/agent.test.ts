@@ -44,6 +44,20 @@ test("local-model JSON fallback is normalized into guarded tool calls", () => {
   assert.deepEqual(parseFallbackToolCalls("ordinary response", new Set(["write_file"])), []);
 });
 
+test("local-model XML write fallback preserves unescaped file content", () => {
+  const content = `<jevio_write path="index.html">
+<!doctype html>
+<h1 data-state="new">Тапки & стиль</h1>
+</jevio_write>`;
+  const calls = parseFallbackToolCalls(content, new Set(["write_file"]));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, "write_file");
+  assert.deepEqual(JSON.parse(calls[0].arguments), {
+    path: "index.html",
+    content: "<!doctype html>\n<h1 data-state=\"new\">Тапки & стиль</h1>",
+  });
+});
+
 test("text tool mode omits native tools and executes the fallback protocol", async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
@@ -74,6 +88,33 @@ test("text tool mode omits native tools and executes the fallback protocol", asy
   assert.equal(result.content, "Готово");
   assert.equal(progress, "Пишу файлы");
   assert.equal(requestBodies.length, 2);
+  assert.equal(requestBodies[0].tools, undefined);
+  assert.match(JSON.stringify(requestBodies[0].messages), /jevio_tool_calls/);
+  assert.match(JSON.stringify(requestBodies[0].messages), /jevio_write/);
+});
+
+test("text tool instructions are also supplied to the orchestrator", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const requestBodies: Array<Record<string, unknown>> = [];
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    calls += 1;
+    const content = calls === 1
+      ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Делегирую" } }] })
+      : "Готово";
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }), {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.providers.lmstudio = { baseUrl: "http://localhost:1234/v1", toolMode: "text" };
+  config.defaultProvider = "lmstudio";
+  config.roles.orchestrator = { provider: "lmstudio", model: "local-general" };
+  const result = await runAgent({ role: "orchestrator", task: "Сделай сайт", config, toolContext: context });
+
+  assert.equal(result.content, "Готово");
   assert.equal(requestBodies[0].tools, undefined);
   assert.match(JSON.stringify(requestBodies[0].messages), /jevio_tool_calls/);
 });
