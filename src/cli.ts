@@ -485,10 +485,10 @@ async function main(): Promise<void> {
 
   let active = await initialSession(options, terminal);
   let history = active.history;
-  const rememberCognee = async (content: string, filename: string): Promise<string | undefined> => {
+  const rememberCognee = async (content: string, filename: string, sessionAware = true): Promise<string | undefined> => {
     if (!cogneeMemory.enabled) return undefined;
     try {
-      await cogneeMemory.remember(content, active.info.id, filename);
+      await cogneeMemory.remember(content, sessionAware ? active.info.id : undefined, filename);
       return undefined;
     } catch (error) {
       const warning = `Cognee write skipped: ${(error as Error).message}`;
@@ -943,13 +943,13 @@ async function main(): Promise<void> {
       if (parts[0] === "sync") {
         if (!cogneeMemory.enabled) return { output: "Cognee memory is disabled in jevio.config.json." };
         const document = await loadProjectMemory(options.workspace);
-        const warning = await rememberCognee(document, "MEMORY.md");
+        const warning = await rememberCognee(document, "MEMORY.md", false);
         return { output: warning ?? `MEMORY.md synchronized with Cognee dataset ${cogneeMemory.dataset}.` };
       }
       if (parts[0] === "improve") {
         if (!cogneeMemory.enabled) return { output: "Cognee memory is disabled in jevio.config.json." };
         try {
-          await cogneeMemory.improve();
+          await cogneeMemory.improve([active.info.id]);
           return { output: `Cognee improvement started for dataset ${cogneeMemory.dataset}.` };
         } catch (error) {
           return { output: `Cognee improvement failed: ${(error as Error).message}` };
@@ -960,7 +960,7 @@ async function main(): Promise<void> {
         if (!entry) return { output: "Использование: /memory add <текст>" };
         const file = await appendProjectMemory(options.workspace, entry);
         context.projectMemory = await loadProjectMemory(options.workspace);
-        const warning = await rememberCognee(`# Explicit project memory\n\n${entry}`, `explicit-${Date.now()}.md`);
+        const warning = await rememberCognee(`# Explicit project memory\n\n${entry}`, `explicit-${Date.now()}.md`, false);
         return { output: `Memory updated: ${file}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
       }
       if (parts[0] === "clear") {

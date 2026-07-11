@@ -49,6 +49,7 @@ const DEFAULT_CONFIG: JevioConfig = {
       maxResults: 6,
       maxContextCharacters: 8_000,
       maxRememberCharacters: 16_000,
+      sessionAware: true,
       rememberCompletedTurns: true,
       rememberCompactions: true,
     },
@@ -98,6 +99,7 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
   }
   const cognee = { ...DEFAULT_CONFIG.memory.cognee, ...input.memory?.cognee } as CogneeMemoryConfig;
   if (!["x-api-key", "bearer"].includes(cognee.authMode)) throw new Error("Invalid memory.cognee.authMode.");
+  if (typeof cognee.sessionAware !== "boolean") throw new Error("memory.cognee.sessionAware must be boolean.");
   if (cognee.baseUrlEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cognee.baseUrlEnv)) {
     throw new Error("memory.cognee.baseUrlEnv must be an environment variable name.");
   }

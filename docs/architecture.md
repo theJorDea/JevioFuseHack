@@ -29,9 +29,12 @@ session workflow Kimi Code.
 
 src/memory.ts реализует опциональный Cognee REST adapter. Markdown остаётся
 источником истины, а Cognee хранит проектный semantic index. Перед задачей host
-выполняет dataset-scoped recall и помечает результат как недоверенный исторический
-контекст. После успешного turn host сохраняет запрос и итоговый ответ; tool traces
-не индексируются. Ошибки Cognee не влияют на основной session workflow.
+объединяет recall активной сессии с dataset-scoped graph recall и помечает
+результат как недоверенный исторический контекст. После успешного turn host
+сохраняет запрос и итоговый ответ с ID сессии; tool traces не индексируются.
+Явная память проекта записывается напрямую в постоянный dataset, а команда
+`/memory improve` переносит данные активной сессии в граф. Ошибки Cognee не
+влияют на основной session workflow.
 
 src/compaction.ts оценивает размер истории, вызывает отдельную роль compactor и
 строит новый model-visible context из summary и нескольких последних сообщений.

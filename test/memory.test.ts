@@ -7,6 +7,7 @@ function config() {
   const value = structuredClone(DEFAULT_CONFIG.memory.cognee);
   value.enabled = true;
   value.dataset = "test-project";
+  value.sessionAware = false;
   return value;
 }
 
@@ -48,6 +49,56 @@ test("Cognee remember uploads Markdown into the project dataset", async () => {
   assert.equal(body?.get("session_id"), null);
   assert.equal(body?.get("run_in_background"), "true");
   assert.equal(await (body?.get("data") as Blob).text(), "durable decision");
+});
+
+test("Cognee session-aware memory stores the session and combines session with graph recall", async () => {
+  const options = config();
+  options.sessionAware = true;
+  let remembered: FormData | undefined;
+  const recallBodies: Array<Record<string, unknown>> = [];
+  const memory = new CogneeMemory(options, process.cwd(), async (_input, init) => {
+    if (init?.body instanceof FormData) {
+      remembered = init.body;
+      return new Response("{}", { status: 200 });
+    }
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    recallBodies.push(body);
+    return new Response(JSON.stringify({
+      results: [{ text: body.datasets ? "graph decision" : "current session" }],
+    }), { status: 200 });
+  });
+
+  await memory.remember("session decision", "session-3", "session.md");
+  assert.equal(remembered?.get("session_id"), "session-3");
+  assert.equal(await memory.recall("what changed?", "session-3"), "current session\n\n---\n\ngraph decision");
+  assert.deepEqual(recallBodies[0], {
+    query: "what changed?",
+    top_k: 6,
+    only_context: true,
+    scope: "session",
+    session_id: "session-3",
+  });
+  assert.deepEqual(recallBodies[1], {
+    query: "what changed?",
+    top_k: 6,
+    only_context: true,
+    scope: "auto",
+    datasets: ["test-project"],
+    session_id: "session-3",
+  });
+});
+
+test("Cognee session recall remains available before the graph dataset is created", async () => {
+  const options = config();
+  options.sessionAware = true;
+  const memory = new CogneeMemory(options, process.cwd(), async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return body.datasets
+      ? new Response(JSON.stringify({ detail: "DatasetNotFoundError: No datasets found." }), { status: 404 })
+      : new Response(JSON.stringify({ results: [{ text: "session-only decision" }] }), { status: 200 });
+  });
+
+  assert.equal(await memory.recall("new project", "session-4"), "session-only decision");
 });
 
 test("Cognee improve enriches the project dataset and bridges unique sessions", async () => {

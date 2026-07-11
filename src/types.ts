@@ -55,6 +55,7 @@ export interface CogneeMemoryConfig {
   maxResults: number;
   maxContextCharacters: number;
   maxRememberCharacters: number;
+  sessionAware: boolean;
   rememberCompletedTurns: boolean;
   rememberCompactions: boolean;
 }

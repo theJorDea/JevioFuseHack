@@ -72,6 +72,7 @@
       "maxResults": 6,
       "maxContextCharacters": 8000,
       "maxRememberCharacters": 16000,
+      "sessionAware": true,
       "rememberCompletedTurns": true,
       "rememberCompactions": true
     }

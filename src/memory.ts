@@ -149,6 +149,24 @@ export class CogneeMemory {
 
   async recall(query: string, sessionId?: string): Promise<string> {
     if (!this.enabled || !query.trim()) return "";
+    const responses: unknown[] = [];
+    if (this.config.sessionAware && sessionId?.trim()) {
+      try {
+        responses.push(await this.request("/api/v1/recall", {
+          method: "POST",
+          headers: this.headers(true),
+          body: JSON.stringify({
+            query: query.trim(),
+            top_k: Math.floor(this.config.maxResults),
+            only_context: true,
+            scope: "session",
+            session_id: sessionId.trim(),
+          }),
+        }));
+      } catch {
+        // Session memory is an optional fast path. Graph recall remains authoritative.
+      }
+    }
     let response: unknown;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
@@ -175,7 +193,10 @@ export class CogneeMemory {
         const legacyServer = error instanceof CogneeHttpError
           && error.status === 404
           && !missingDataset;
-        if (missingDataset) return "";
+        if (missingDataset) {
+          response = undefined;
+          break;
+        }
         if (legacyServer) {
           response = await this.request("/api/v1/search", {
             method: "POST",
@@ -196,15 +217,17 @@ export class CogneeMemory {
         throw error;
       }
     }
-    const unique = [...new Set(responseStrings(response))].slice(0, Math.floor(this.config.maxResults));
+    responses.push(response);
+    const unique = [...new Set(responseStrings(responses))].slice(0, Math.floor(this.config.maxResults));
     return unique.join("\n\n---\n\n").slice(0, Math.floor(this.config.maxContextCharacters));
   }
 
-  async remember(content: string, _sessionId?: string, filename = "memory.md"): Promise<void> {
+  async remember(content: string, sessionId?: string, filename = "memory.md"): Promise<void> {
     if (!this.enabled || !content.trim()) return;
     const form = new FormData();
     form.append("data", new Blob([content.trim().slice(0, Math.floor(this.config.maxRememberCharacters))], { type: "text/markdown" }), filename);
     form.append("datasetName", this.dataset);
+    if (this.config.sessionAware && sessionId?.trim()) form.append("session_id", sessionId.trim());
     form.append("run_in_background", "true");
     await this.request("/api/v1/remember", { method: "POST", headers: this.headers(), body: form });
   }

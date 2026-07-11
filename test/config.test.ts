@@ -34,6 +34,7 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.codeIndex.backend, "auto");
   assert.equal(config.memory.cognee.enabled, false);
   assert.equal(config.memory.cognee.baseUrl, "http://localhost:8000");
+  assert.equal(config.memory.cognee.sessionAware, true);
 });
 
 test("loads disabled MCP plugin configs without enabling plugin approvals", async (t) => {
@@ -90,6 +91,8 @@ test("loads and validates Cognee memory settings", async (t) => {
   await assert.rejects(() => loadConfig(workspace), /baseUrl/);
   await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({ memory: { cognee: { baseUrlEnv: "not valid" } } }));
   await assert.rejects(() => loadConfig(workspace), /baseUrlEnv/);
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({ memory: { cognee: { sessionAware: "yes" } } }));
+  await assert.rejects(() => loadConfig(workspace), /sessionAware/);
 });
 
 test("adds a provider without writing its API key", async (t) => {
