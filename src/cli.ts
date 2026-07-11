@@ -517,11 +517,14 @@ async function main(): Promise<void> {
  : questionOrRequest;
  if (tui) {
       const answers = [];
+      const transcriptAnswers = [];
       for (const item of request.questions) {
-        const answer = await tui.askUser(item.question, item.options ?? []);
+        const answer = await tui.askUser(item.question, item.options ?? [], item.multiSelect ?? false, item.allowOther ?? true, false);
         answers.push(`${item.id ?? item.question}: ${answer}`);
+        if (answer !== "[cancelled]") transcriptAnswers.push(`${item.id ?? "Ответ"}: ${answer}`);
         if (answer === "[cancelled]") break;
       }
+      if (transcriptAnswers.length) tui.appendUserAnswer(transcriptAnswers.join("\n"));
       return answers.join("\n") || "[cancelled]";
     }
  if (!terminal) return "[unavailable: non-interactive run]";

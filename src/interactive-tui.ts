@@ -3,6 +3,7 @@ import {
   Box,
   Container,
   Editor,
+  getKeybindings,
   Input,
   Loader,
   Markdown,
@@ -16,6 +17,7 @@ import {
   type SelectItem,
   type SelectListTheme,
   type Terminal,
+  truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { getPaletteItems, isExactSlashCommand } from "./slash-commands.ts";
 import type { ExecutionMode } from "./types.ts";
@@ -222,6 +224,105 @@ const selectTheme: SelectListTheme = {
   noMatch: dim,
 };
 
+class MultiSelectList implements Component {
+  private readonly items: SelectItem[];
+  private readonly maxVisible: number;
+  private selectedIndex = 0;
+  private offset = 0;
+  private readonly selected = new Set<number>();
+  private notice = "";
+  onSubmit?: (values: string[]) => void;
+  onOther?: () => void;
+  onCancel?: () => void;
+
+  constructor(items: SelectItem[], maxVisible = 8) {
+    this.items = items;
+    this.maxVisible = maxVisible;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const visibleWidth = Math.max(18, width);
+    const end = Math.min(this.items.length, this.offset + this.maxVisible);
+    const lines = this.items.slice(this.offset, end).map((item, visibleIndex) => {
+      const index = this.offset + visibleIndex;
+      const cursor = index === this.selectedIndex ? cyan("→") : " ";
+      const checked = this.selected.has(index) ? green("[x]") : dim("[ ]");
+      const description = item.description ? `  ${dim(item.description)}` : "";
+      return truncateToWidth(`${cursor} ${checked} ${item.label}${description}`, visibleWidth, "…");
+    });
+    if (this.items.length > this.maxVisible) {
+      lines.push(dim(`Пункты ${this.offset + 1}–${end} из ${this.items.length}`));
+    }
+    lines.push(dim("↑↓ выбор · Space отметить · Enter готово · Esc отмена"));
+    if (this.notice) lines.push(yellow(this.notice));
+    return lines;
+  }
+
+  handleInput(data: string): void {
+    const kb = getKeybindings();
+    if (kb.matches(data, "tui.select.cancel")) {
+      this.onCancel?.();
+      return;
+    }
+    if (kb.matches(data, "tui.select.up")) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      this.keepSelectionVisible();
+      return;
+    }
+    if (kb.matches(data, "tui.select.down")) {
+      this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + 1);
+      this.keepSelectionVisible();
+      return;
+    }
+    if (kb.matches(data, "tui.select.pageUp")) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - this.maxVisible);
+      this.keepSelectionVisible();
+      return;
+    }
+    if (kb.matches(data, "tui.select.pageDown")) {
+      this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + this.maxVisible);
+      this.keepSelectionVisible();
+      return;
+    }
+    if (data === " ") {
+      const item = this.items[this.selectedIndex];
+      if (item?.value === "__custom_answer__") {
+        this.onOther?.();
+      } else if (item) {
+        if (this.selected.has(this.selectedIndex)) this.selected.delete(this.selectedIndex);
+        else this.selected.add(this.selectedIndex);
+        this.notice = "";
+        this.invalidate();
+      }
+      return;
+    }
+    if (kb.matches(data, "tui.select.confirm")) {
+      const item = this.items[this.selectedIndex];
+      if (item?.value === "__custom_answer__") {
+        this.onOther?.();
+        return;
+      }
+      if (!this.selected.size) {
+        this.notice = "Отметьте хотя бы один пункт или выберите «Другое…».";
+        this.invalidate();
+        return;
+      }
+      this.onSubmit?.([...this.selected]
+        .sort((a, b) => a - b)
+        .map((index) => this.items[index]?.value)
+        .filter((value): value is string => Boolean(value)));
+    }
+  }
+
+  private keepSelectionVisible(): void {
+    if (this.selectedIndex < this.offset) this.offset = this.selectedIndex;
+    if (this.selectedIndex >= this.offset + this.maxVisible) this.offset = this.selectedIndex - this.maxVisible + 1;
+    this.invalidate();
+  }
+}
+
 const markdownTheme: MarkdownTheme = {
   heading: boldCyan,
   link: cyan,
@@ -342,7 +443,6 @@ export class InteractiveTui {
     this.editor.onSubmit = (input) => void this.handleSubmit(input);
 
     this.root.addChild(this.header);
-    this.root.addChild(this.todos);
     this.root.addChild(new Text(""));
     this.root.addChild(this.transcript);
     this.root.addChild(this.loader);
@@ -350,6 +450,7 @@ export class InteractiveTui {
     this.help.setText(dim("Enter · /help · Ctrl+K команды · Ctrl+O блоки · /roles · /models · Esc · Ctrl+C остановить/выйти"));
     this.root.addChild(this.help);
     this.root.addChild(this.editor);
+    this.root.addChild(this.todos);
     this.root.addChild(this.modeFooter);
     this.tui.addChild(this.root);
     this.tui.setFocus(this.editor);
@@ -556,7 +657,13 @@ export class InteractiveTui {
     });
   }
 
-  async askUser(question: string, options: Array<{ label: string; description?: string }>): Promise<string> {
+  async askUser(
+    question: string,
+    options: Array<{ label: string; description?: string }>,
+    multiSelect = false,
+    allowOther = true,
+    recordTranscript = true,
+  ): Promise<string> {
     return new Promise<string>((resolve) => {
       this.loader.setMessage("Жду вашего ответа");
       this.setStatus("Жду вашего ответа", yellow);
@@ -564,28 +671,35 @@ export class InteractiveTui {
       overlay.addChild(new Text(boldCyan(`ТРЕБУЕТСЯ ВАШ ОТВЕТ\n${question}\n`), 1, 1));
       const items: SelectItem[] = [
         ...options.map((option) => ({ value: option.label, label: option.label, description: option.description })),
-        { value: "__custom_answer__", label: "Другое...", description: "Ввести свой ответ" },
+        ...(allowOther ? [{ value: "__custom_answer__", label: "Другое...", description: "Ввести свой ответ" }] : []),
       ];
-      const choices = new SelectList(items, 8, selectTheme);
+      const choices = multiSelect
+        ? new MultiSelectList(items, 8)
+        : new SelectList(items, 8, selectTheme);
       overlay.addChild(choices);
       const close = (answer: string) => {
         handle.hide();
         this.dismissOverlay = undefined;
         this.tui.setFocus(this.editor);
         this.resumeWorkingChrome();
-        if (answer && answer !== "[cancelled]") this.appendMessage("you", answer);
+        if (recordTranscript && answer && answer !== "[cancelled]") this.appendMessage("you", answer);
         resolve(answer);
       };
-      choices.onSelect = (choice) => {
-        if (choice.value === "__custom_answer__") {
-          handle.hide();
-          this.dismissOverlay = undefined;
-          this.showQuestionInput(question, resolve);
-        } else {
-          close(choice.value);
-        }
+      const openOther = () => {
+        handle.hide();
+        this.dismissOverlay = undefined;
+        this.showQuestionInput(question, resolve, recordTranscript);
       };
-      choices.onCancel = () => close("[cancelled]");
+      if (multiSelect) {
+        const multiChoices = choices as MultiSelectList;
+        multiChoices.onSubmit = (values) => close(values.join(", "));
+        multiChoices.onOther = openOther;
+        multiChoices.onCancel = () => close("[cancelled]");
+      } else {
+        const singleChoices = choices as SelectList;
+        singleChoices.onSelect = (choice) => choice.value === "__custom_answer__" ? openOther() : close(choice.value);
+        singleChoices.onCancel = () => close("[cancelled]");
+      }
       const handle = this.tui.showOverlay(overlay, { width: "72%", minWidth: 52, maxHeight: "60%", anchor: "center", margin: 2 });
       this.dismissOverlay = () => close("[cancelled]");
       this.tui.setFocus(choices);
@@ -647,7 +761,7 @@ export class InteractiveTui {
     this.tui.setFocus(input);
   }
 
-  private showQuestionInput(question: string, resolve: (answer: string) => void): void {
+  private showQuestionInput(question: string, resolve: (answer: string) => void, recordTranscript = true): void {
     const overlay = modalSurface();
     overlay.addChild(new Text(boldCyan(`ТРЕБУЕТСЯ ВАШ ОТВЕТ\n${question}\n`), 1, 1));
     const input = new Input();
@@ -657,7 +771,7 @@ export class InteractiveTui {
       this.dismissOverlay = undefined;
       this.tui.setFocus(this.editor);
       this.resumeWorkingChrome();
-      if (answer && answer !== "[cancelled]") this.appendMessage("you", answer);
+      if (recordTranscript && answer && answer !== "[cancelled]") this.appendMessage("you", answer);
       resolve(answer);
     };
     input.onSubmit = (answer) => close(answer.trim() || "[cancelled]");
@@ -1343,6 +1457,10 @@ export class InteractiveTui {
   /** Public system message (e.g. proactive KAIROS tips). */
   appendSystem(content: string): void {
     this.appendMessage("system", content);
+  }
+
+  appendUserAnswer(content: string): void {
+    if (content.trim()) this.appendMessage("you", content);
   }
 
   private appendMessage(label: MessageLabel, content: string): void {
