@@ -57,7 +57,7 @@
             <button type="button" id="workspace-trigger" class="workspace-trigger" title="Рабочая директория задаётся при запуске Fuse">
               <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
               <span id="subtitle">Рабочая папка</span>
-              <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg>
+              <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
             </button>
           </div>
         </div>
@@ -87,10 +87,10 @@
           <h2>Что нужно сделать?</h2>
           <p>Опиши результат обычным языком. Fuse разберётся с проектом, сделает работу и покажет, что изменилось.</p>
           <div class="suggestions" id="suggestions">
-            <button type="button" data-prompt="Объясни структуру этого проекта простыми словами"><span>Разобраться в проекте</span><small>обзор кода</small></button>
-            <button type="button" data-prompt="Найди и исправь очевидные баги в коде"><span>Найти проблемные места</span><small>проверка кода</small></button>
-            <button type="button" data-prompt="Добавь README с инструкцией по запуску"><span>Подготовить README</span><small>документация</small></button>
-            <button type="button" data-prompt="Предложи 5 улучшений UX/кода"><span>Улучшить интерфейс</span><small>UX и фронтенд</small></button>
+            <button type="button" data-prompt="Объясни структуру этого проекта простыми словами"><span>Разобраться в проекте</span><small>обзор кода</small><svg class="suggestion-arrow" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+            <button type="button" data-prompt="Найди и исправь очевидные баги в коде"><span>Найти проблемные места</span><small>проверка кода</small><svg class="suggestion-arrow" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+            <button type="button" data-prompt="Добавь README с инструкцией по запуску"><span>Подготовить README</span><small>документация</small><svg class="suggestion-arrow" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+            <button type="button" data-prompt="Предложи 5 улучшений UX/кода"><span>Улучшить интерфейс</span><small>UX и фронтенд</small><svg class="suggestion-arrow" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
           </div>
         </div>
       </div>
@@ -102,26 +102,28 @@
 
       <form id="composer" class="composer">
         <div class="composer-shell">
+          <div class="textarea-row">
+            <div class="attachment-wrap">
+              <button type="button" id="btn-attach" class="composer-icon" title="Прикрепить файлы или папку" aria-label="Прикрепить файлы или папку" aria-expanded="false">
+                <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m20.5 11.5-8.8 8.8a5 5 0 0 1-7.1-7.1l9.2-9.2a3.5 3.5 0 0 1 5 5l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.2-8.2"/></svg>
+              </button>
+              <div id="attachment-menu" class="attachment-menu hidden">
+                <button type="button" id="btn-attach-files"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg><span>Файлы</span></button>
+                <button type="button" id="btn-attach-folder"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg><span>Папка</span></button>
+              </div>
+              <input id="file-input" class="hidden" type="file" multiple />
+              <input id="folder-input" class="hidden" type="file" webkitdirectory multiple />
+            </div>
           <textarea
             id="input"
             rows="1"
             placeholder="Напиши задачу… Enter — отправить, Shift+Enter — строка"
             autofocus
           ></textarea>
+          </div>
           <div class="composer-bar">
             <span class="hint" id="composer-hint">локально · без облака</span>
             <div class="composer-actions">
-              <div class="attachment-wrap">
-                <button type="button" id="btn-attach" class="composer-icon" title="Прикрепить файлы или папку" aria-label="Прикрепить файлы или папку" aria-expanded="false">
-                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m20.5 11.5-8.8 8.8a5 5 0 0 1-7.1-7.1l9.2-9.2a3.5 3.5 0 0 1 5 5l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.2-8.2"/></svg>
-                </button>
-                <div id="attachment-menu" class="attachment-menu hidden">
-                  <button type="button" id="btn-attach-files"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg><span>Файлы</span></button>
-                  <button type="button" id="btn-attach-folder"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg><span>Папка</span></button>
-                </div>
-                <input id="file-input" class="hidden" type="file" multiple />
-                <input id="folder-input" class="hidden" type="file" webkitdirectory multiple />
-              </div>
               <button type="button" id="stop" class="btn stop hidden" aria-label="Остановить выполнение">
                 <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                 <span>Остановить</span>

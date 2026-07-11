@@ -258,6 +258,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-bottom: 1px solid var(--border);
 }
 .top-left, .top-right { display: flex; align-items: center; gap: 10px; }
+.top-right { gap: 8px; }
 .top-left { min-width: 0; flex: 1 1 auto; }
 .top-left > div { min-width: 0; }
 .top h1 {
@@ -280,11 +281,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-family: var(--mono);
   font-size: 0.68rem;
   font-weight: 600;
-  padding: 7px 9px;
+  min-height: 36px;
+  padding: 7px 10px;
   border-radius: 7px;
-  background: var(--accent-soft);
+  background: var(--panel);
   color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border: 1px solid var(--border);
 }
 .chip svg { flex: 0 0 auto; color: var(--accent); }
 .pill {
@@ -293,7 +295,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   gap: 7px;
   font-size: 0.72rem;
   font-weight: 500;
-  padding: 7px 9px;
+  min-height: 36px;
+  padding: 7px 10px;
   border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--panel);
@@ -332,6 +335,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .icon-btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--panel-2); }
 .icon-btn:active { scale: .96; }
 .mobile-only { display: none; }
+.top-right > .icon-btn { width: 36px; height: 36px; border-radius: 7px; background: var(--panel); }
 
 .status-wrap { position: relative; }
 .status-pill { cursor: pointer; }
@@ -459,6 +463,7 @@ body.compact .chat { gap: 8px; }
   width: 100%;
 }
 .suggestions button {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -476,11 +481,13 @@ body.compact .chat { gap: 8px; }
   transition-timing-function: ease-out;
 }
 .suggestions button small { margin-top: 4px; color: var(--faint); font-size: .72rem; font-weight: 500; }
+.suggestion-arrow { position: absolute; top: 12px; right: 12px; color: var(--faint); opacity: 0; transform: translate(-4px, 4px); transition-property: opacity, transform, color; transition-duration: .18s; transition-timing-function: ease-out; }
 .suggestions button:hover {
   border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
   background: var(--accent-soft);
   box-shadow: var(--shadow-border);
 }
+.suggestions button:hover .suggestion-arrow { color: var(--accent); opacity: 1; transform: none; }
 .suggestions button:active { scale: .96; }
 
 .bubble {
@@ -666,6 +673,8 @@ body.compact .chat { gap: 8px; }
   line-height: 1.5;
   color: var(--text);
 }
+.textarea-row { display: flex; align-items: flex-start; min-width: 0; gap: 2px; }
+.textarea-row textarea { flex: 1 1 auto; min-width: 0; }
 .composer textarea::placeholder { color: var(--faint); }
 .composer-bar {
   display: flex;
@@ -677,11 +686,11 @@ body.compact .chat { gap: 8px; }
 }
 .composer-actions { display: flex; align-items: center; gap: 8px; }
 .hint { font-family: var(--mono); font-size: 0.68rem; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-wrap { position: relative; }
+.attachment-wrap { position: relative; flex: 0 0 auto; padding-top: 6px; }
 .composer-icon { width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 9px; background: transparent; color: var(--muted); transition-property: color, border-color, background-color, scale; transition-duration: .16s; transition-timing-function: ease-out; }
 .composer-icon:hover, .composer-icon[aria-expanded="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); }
 .composer-icon:active { scale: .96; }
-.attachment-menu { position: absolute; right: 0; bottom: calc(100% + 9px); z-index: 15; display: grid; width: 150px; padding: 5px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--panel-solid); box-shadow: var(--shadow-border), var(--shadow); animation: rise .16s ease-out; }
+.attachment-menu { position: absolute; left: 0; top: calc(100% + 8px); z-index: 15; display: grid; width: 150px; padding: 5px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--panel-solid); box-shadow: var(--shadow-border), var(--shadow); animation: rise .16s ease-out; }
 .attachment-menu button { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font-size: .8rem; text-align: left; }
 .attachment-menu button:hover { background: var(--accent-soft); color: var(--accent); }
 .attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 8px 2px; }
@@ -960,16 +969,27 @@ html[data-theme="light"] .btn.primary { color: #fff; }
     width: 40px;
     height: 40px;
     min-height: 40px;
-    margin: 0 auto;
+    margin: 2px auto 0;
     padding: 0;
     font-size: 0;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+    box-shadow: none;
   }
   .app.sidebar-collapsed #btn-new .plus {
     margin: 0;
-    color: #0a1717;
+    color: var(--accent);
     font-size: 1.3rem;
     line-height: 1;
   }
+  .app.sidebar-collapsed #btn-new:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a1717;
+    box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .app.sidebar-collapsed #btn-new:hover .plus { color: #0a1717; }
   .app.sidebar-collapsed .section-head,
   .app.sidebar-collapsed .session-search,
   .app.sidebar-collapsed .sessions,
