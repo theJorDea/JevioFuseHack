@@ -15,6 +15,7 @@ import {
   type MarkdownTheme,
   type SelectItem,
   type SelectListTheme,
+  type Terminal,
 } from "@earendil-works/pi-tui";
 import { isExactSlashCommand, SLASH_COMMANDS } from "./slash-commands.ts";
 import type { ExecutionMode } from "./types.ts";
@@ -36,6 +37,7 @@ export interface TuiProvider {
 
 export interface InteractiveTuiOptions {
   workspace: string;
+  terminal?: Terminal;
   submit(input: string): Promise<{ output?: string; exit?: boolean }>;
   listSessions(): Promise<TuiSession[]>;
   resumeSession(id: string): Promise<string>;
@@ -98,6 +100,24 @@ function modalSurface(): Box {
   return new Box(1, 1, modalBackground);
 }
 
+function compactApprovalPreview(message: string): string {
+  const lines = message.split(/\r?\n/);
+  const shorten = (line: string): string => line.length > 40 ? `${line.slice(0, 39)}…` : line;
+  if (lines.length <= 8 && lines.every((line) => line.length <= 40)) return message;
+
+  const prompt = [...lines].reverse().find((line) => line.trim()) ?? "";
+  const context = lines.slice(0, 3);
+  const oldExample = lines.find((line) => /^- /.test(line));
+  const newExample = lines.find((line) => /^\+ /.test(line));
+  const examples = [oldExample, newExample].filter((line): line is string => Boolean(line));
+  return [
+    ...context,
+    ...examples,
+    "… preview сокращён; подтверждение применит полный diff …",
+    prompt,
+  ].map(shorten).join("\n");
+}
+
 const selectTheme: SelectListTheme = {
   selectedPrefix: boldCyan,
   selectedText: boldCyan,
@@ -158,7 +178,7 @@ export class InteractiveTui {
 
   constructor(options: InteractiveTuiOptions) {
     this.options = options;
-    this.tui = new TUI(new ProcessTerminal());
+    this.tui = new TUI(options.terminal ?? new ProcessTerminal());
     this.loader = new Loader(this.tui, cyan, dim, "", { frames: [] });
     this.editor = new Editor(this.tui, { borderColor: cyan, selectList: selectTheme }, { paddingX: 1, autocompleteMaxVisible: 8 });
     const autocomplete = new CombinedAutocompleteProvider(
@@ -261,7 +281,7 @@ export class InteractiveTui {
       this.loader.setMessage("Жду подтверждения...");
       this.setStatus("Жду подтверждения", yellow);
       const overlay = modalSurface();
-      overlay.addChild(new Text(yellow(`${message}\n\n`), 1, 1));
+      overlay.addChild(new Text(yellow(`${compactApprovalPreview(message)}\n\n`), 1, 0));
       const choices = new SelectList([
         { value: "yes", label: "Разрешить", description: "Разрешить операцию" },
         { value: "no", label: "Отклонить", description: "Оставить текущее состояние" },
@@ -277,7 +297,7 @@ export class InteractiveTui {
       };
       choices.onSelect = (choice) => close(choice.value === "yes");
       choices.onCancel = () => close(false);
-      const handle = this.tui.showOverlay(overlay, { width: "60%", minWidth: 44, maxHeight: 8, anchor: "center", margin: 2 });
+      const handle = this.tui.showOverlay(overlay, { width: "60%", minWidth: 44, maxHeight: 14, anchor: "center", margin: 2 });
       this.dismissOverlay = () => close(false);
       this.tui.setFocus(choices);
     });

@@ -112,6 +112,37 @@ function parseArguments(raw: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+function repairMalformedJsonLineContinuations(value: string): string {
+  return value
+    .replace(/\\\r?\n/g, "")
+    .replace(/\\(?=\s)/g, "");
+}
+
+function parseJsonFallbackCandidate(candidate: string, allowedNames: Set<string>): ToolCall[] | undefined {
+  const variants = [candidate];
+  const repaired = repairMalformedJsonLineContinuations(candidate);
+  if (repaired !== candidate) variants.push(repaired);
+  for (const variant of variants) {
+    try {
+      const parsed = JSON.parse(variant) as { jevio_tool_calls?: unknown };
+      if (!Array.isArray(parsed.jevio_tool_calls)) continue;
+      return parsed.jevio_tool_calls.slice(0, 12).flatMap((value, index) => {
+        if (!value || typeof value !== "object") return [];
+        const call = value as { name?: unknown; arguments?: unknown };
+        const name = typeof call.name === "string" ? call.name : "";
+        if (!allowedNames.has(name)) return [];
+        const argumentsJson = typeof call.arguments === "string"
+          ? call.arguments
+          : JSON.stringify(call.arguments ?? {});
+        return [{ id: `fallback_${index}`, name, arguments: argumentsJson }];
+      });
+    } catch {
+      // Try the next normalization or candidate.
+    }
+  }
+  return undefined;
+}
+
 export function parseFallbackToolCalls(content: string, allowedNames: Set<string>): ToolCall[] {
   if (allowedNames.has("write_file")) {
     const write = /<jevio_write\s+path=(["'])([^"']+)\1\s*>([\s\S]*?)<\/jevio_write>/iu.exec(content);
@@ -131,22 +162,8 @@ export function parseFallbackToolCalls(content: string, allowedNames: Set<string
   const tagged = [...content.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/giu)].map((match) => match[1].trim());
   for (const candidate of [content.trim(), ...fenced, ...tagged, embedded]) {
     if (!candidate.includes("jevio_tool_calls")) continue;
-    try {
-      const parsed = JSON.parse(candidate) as { jevio_tool_calls?: unknown };
-      if (!Array.isArray(parsed.jevio_tool_calls)) continue;
-      return parsed.jevio_tool_calls.slice(0, 12).flatMap((value, index) => {
-        if (!value || typeof value !== "object") return [];
-        const call = value as { name?: unknown; arguments?: unknown };
-        const name = typeof call.name === "string" ? call.name : "";
-        if (!allowedNames.has(name)) return [];
-        const argumentsJson = typeof call.arguments === "string"
-          ? call.arguments
-          : JSON.stringify(call.arguments ?? {});
-        return [{ id: `fallback_${index}`, name, arguments: argumentsJson }];
-      });
-    } catch {
-      // Try another fenced candidate when the surrounding response is not valid JSON.
-    }
+    const parsed = parseJsonFallbackCandidate(candidate, allowedNames);
+    if (parsed) return parsed;
   }
   return [];
 }
@@ -187,7 +204,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
   const usesTextTools = toolMode === "text" && tools.length > 0;
   const allowedToolNames = tools.map((tool) => tool.function.name).join(", ");
   const textToolInstructions = options.role === "coder"
-    ? `This provider uses Jevio's text tool protocol. Allowed tools: ${allowedToolNames}. Never invent tool names. Return at most one tool call per response and no explanatory text. For write_file, prefer this format because file content needs no JSON escaping:\n<jevio_write path="relative/path">\ncomplete file content\n</jevio_write>\nFor other tools use: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue with the next tool call or a concise final summary.`
+    ? `This provider uses Jevio's text tool protocol. Allowed tools: ${allowedToolNames}. Never invent tool names. Return at most one tool call per response and no explanatory text. For write_file, MUST use this XML format because file content must not be JSON-escaped. Never put write_file inside JSON or Markdown:\n<jevio_write path="relative/path">\ncomplete file content\n</jevio_write>\nFor other tools use: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue with the next tool call or a concise final summary.`
     : `This provider uses Jevio's text tool protocol. Allowed tools: ${allowedToolNames}. Never invent tool names. To call a tool, return ONLY JSON without Markdown and at most one call: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue normally.`;
   const modelUserMessage: ChatMessage = usesTextTools
     ? {
@@ -249,7 +266,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
         malformedTextToolAttempts += 1;
         messages.push({
           role: "user",
-          content: "Your text-protocol tool call was incomplete or invalid and was not executed. Retry now with ONLY one complete tool block and no introduction. Keep the file compact enough to finish the closing </jevio_write> tag within this response.",
+          content: "Your previous text-tool response was malformed and nothing was executed. Retry now with ONLY one complete <jevio_write path=\"relative/path\">...full file content...</jevio_write> block. Do not use JSON, Markdown, an introduction, or an unterminated block. Make sure the closing </jevio_write> tag is present.",
         });
         continue;
       }
