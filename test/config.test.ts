@@ -113,6 +113,37 @@ test("adds a provider without writing its API key", async (t) => {
   assert.deepEqual(saved.roles.coder, { provider: "cloud", model: "cloud-code-model" });
 });
 
+test("can register a provider without rebinding every role", async (t) => {
+  const workspace = path.join(tmpdir(), `.tmp-test-config-provider-register-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    defaultProvider: "ollama",
+    providers: { ollama: { baseUrl: "http://localhost:11434/v1", defaultModel: "qwen3:14b" } },
+    roles: {
+      coder: { provider: "ollama", model: "qwen3-coder:30b" },
+      architect: { provider: "ollama", model: "qwen3:14b" },
+    },
+  }));
+  await addProviderConfig(workspace, undefined, {
+    name: "openrouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "openai/gpt-5.2",
+  }, { applyToAllRoles: false });
+  const saved = JSON.parse(await readFile(path.join(workspace, "jevio.config.json"), "utf8")) as {
+    defaultProvider: string;
+    providers: { ollama: unknown; openrouter: { baseUrl: string; defaultModel: string } };
+    roles: { coder: { provider: string; model: string }; architect: { provider: string; model: string } };
+  };
+  assert.equal(saved.defaultProvider, "ollama");
+  assert.deepEqual(saved.providers.openrouter, {
+    baseUrl: "https://openrouter.ai/api/v1",
+    defaultModel: "openai/gpt-5.2",
+  });
+  assert.deepEqual(saved.roles.coder, { provider: "ollama", model: "qwen3-coder:30b" });
+  assert.deepEqual(saved.roles.architect, { provider: "ollama", model: "qwen3:14b" });
+});
+
 test("existing LM Studio providers default to the text tool protocol", async (t) => {
   const workspace = path.join(process.cwd(), `.tmp-test-config-lmstudio-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));

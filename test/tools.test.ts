@@ -110,21 +110,89 @@ test("agents can ask the interactive user a structured question", async () => {
     autoApproveWrites: false,
     autoApproveShell: false,
     confirm: async () => false,
-    askUser: async (question, options) => `${question}: ${options[0]?.label}`,
+    askUser: async (questionOrRequest, options) => {
+      if (typeof questionOrRequest === "string") {
+        return `q1: ${options?.[0]?.label ?? ""}`;
+      }
+      return questionOrRequest.questions
+        .map((item) => `${item.id}: ${(item.options ?? [])[0]?.label ?? ""}`)
+        .join("\n");
+    },
     updateTodos: (items) => { todos = items; },
   };
   const result = await executeTool("ask_user", {
     question: "Which layout?",
     options: [{ label: "Grid", description: "Responsive cards" }],
   }, context);
-  assert.equal(result, "Which layout?: Grid");
+  assert.equal(result, "q1: Grid");
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "ask_user"));
+
+  const multi = await executeTool("ask_user", {
+    header: "Нужны решения по UI",
+    questions: [
+      {
+        id: "layout",
+        question: "Layout?",
+        options: [{ label: "Grid" }, { label: "List" }],
+      },
+      {
+        id: "theme",
+        question: "Theme features?",
+        multi_select: true,
+        options: [{ label: "Dark" }, { label: "Motion" }],
+      },
+    ],
+  }, context);
+  assert.match(multi, /layout: Grid/);
+  assert.match(multi, /theme: Dark/);
+
   assert.equal(await executeTool("report_progress", { message: "Inspecting the project structure." }, context), "Progress update shown to the user.");
-  assert.match(await executeTool("update_todo", { todos: [{ content: "Inspect files", status: "in_progress" }] }, context), /Inspect files/);
-  assert.deepEqual(todos, [{ content: "Inspect files", status: "in_progress" }]);
+  assert.match(
+    await executeTool("update_todo", {
+      todos: [
+        { content: "Inspect files", status: "in_progress" },
+        { content: "Write code", status: "pending" },
+      ],
+    }, context),
+    /ToDo 0\/2 done/,
+  );
+  assert.deepEqual(todos, [
+    { content: "Inspect files", status: "in_progress" },
+    { content: "Write code", status: "pending" },
+  ]);
+  // Only one in_progress — demote extras
+  assert.match(
+    await executeTool("update_todo", {
+      todos: [
+        { content: "A", status: "in_progress" },
+        { content: "B", status: "in_progress" },
+      ],
+    }, context),
+    /only one in_progress/,
+  );
+  assert.equal(todos.filter((item) => item.status === "in_progress").length, 1);
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "report_progress"));
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "web_search"));
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "web_fetch"));
+});
+
+test("parseAskUserRequest accepts legacy and batch forms", async () => {
+  const { parseAskUserRequest } = await import("../src/tools.ts");
+  const legacy = parseAskUserRequest({
+    question: "Pick one",
+    options: [{ label: "A" }],
+    multi_select: true,
+  });
+  assert.equal(legacy.questions.length, 1);
+  assert.equal(legacy.questions[0].multiSelect, true);
+  assert.equal(legacy.questions[0].options?.[0].label, "A");
+
+  const batch = parseAskUserRequest({
+    header: "Context",
+    questions: [{ question: "Q?", options: [{ label: "Yes" }], id: "confirm" }],
+  });
+  assert.equal(batch.header, "Context");
+  assert.equal(batch.questions[0].id, "confirm");
 });
 
 test("web_fetch tool rejects private hosts without network", async () => {

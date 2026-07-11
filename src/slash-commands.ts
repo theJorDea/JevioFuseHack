@@ -6,6 +6,13 @@ export type SlashCommandGroup =
   | "tools"
   | "system";
 
+export interface SlashSubcommand {
+  name: string;
+  description: string;
+  /** Optional trailing arg hint shown after the subcommand name. */
+  argumentHint?: string;
+}
+
 export interface SlashCommandDefinition {
   name: string;
   description: string;
@@ -15,6 +22,8 @@ export interface SlashCommandDefinition {
   aliases?: string[];
   /** Show in Ctrl+K palette (default true). */
   palette?: boolean;
+  /** Known first-token subcommands for autocomplete and help. */
+  subcommands?: SlashSubcommand[];
 }
 
 const GROUP_ORDER: SlashCommandGroup[] = [
@@ -47,7 +56,15 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { name: "title", description: "Название сессии", argumentHint: "[текст]", group: "session", aliases: ["rename"] },
   { name: "fork", description: "Копия текущей сессии", group: "session" },
   { name: "export-md", description: "Экспорт истории в Markdown", argumentHint: "[путь]", group: "session", aliases: ["export"] },
-  { name: "compact", description: "Сжать контекст", argumentHint: "[status|инструкция]", group: "session" },
+  {
+    name: "compact",
+    description: "Сжать контекст",
+    argumentHint: "[status|инструкция]",
+    group: "session",
+    subcommands: [
+      { name: "status", description: "Показать настройки сжатия и оценку контекста" },
+    ],
+  },
   {
     name: "clear",
     description: "Очистить экран TUI (сессию не трогает)",
@@ -58,30 +75,87 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
 
   // models
   { name: "provider", description: "Провайдер (список / смена)", argumentHint: "[имя]", group: "models" },
-  { name: "models", description: "Модель на все роли", argumentHint: "[status|id]", group: "models", aliases: ["model"] },
+  {
+    name: "models",
+    description: "Модель на все роли",
+    argumentHint: "[status|id]",
+    group: "models",
+    aliases: ["model"],
+    subcommands: [
+      { name: "status", description: "Текущая модель / провайдер" },
+    ],
+  },
   { name: "roles", description: "Модель/провайдер на каждую роль", group: "models" },
   { name: "setup", description: "Статус окружения + провайдер", group: "models" },
-  { name: "yolo", description: "Auto-approve writes/shell/plugins/plans", argumentHint: "[on|off|status]", group: "models" },
+  {
+    name: "yolo",
+    description: "Auto-approve writes/shell/plugins/plans",
+    argumentHint: "[on|off|status]",
+    group: "models",
+    subcommands: [
+      { name: "on", description: "Включить YOLO" },
+      { name: "off", description: "Выключить YOLO" },
+      { name: "status", description: "Показать состояние YOLO" },
+    ],
+  },
 
-  // mode
-  { name: "direct", description: "Только coder", group: "mode" },
-  { name: "orchestrate", description: "Динамическая оркестрация", group: "mode" },
-  { name: "team", description: "architect → coder → reviewer", group: "mode" },
-  { name: "plan", description: "Plan Mode (read-only → submit_plan)", group: "mode" },
-  { name: "council-plan", description: "Совет архитекторов → coder", group: "mode" },
-  { name: "council-review", description: "Совет ревьюеров", group: "mode" },
+  // mode — with optional task: sets sticky mode and runs the task immediately
+  { name: "direct", description: "Только coder", argumentHint: "[задача]", group: "mode" },
+  { name: "orchestrate", description: "Динамическая оркестрация", argumentHint: "[задача]", group: "mode" },
+  { name: "team", description: "architect → coder → reviewer", argumentHint: "[задача]", group: "mode" },
+  { name: "plan", description: "Plan Mode (read-only → submit_plan)", argumentHint: "[задача]", group: "mode" },
+  { name: "council-plan", description: "Совет архитекторов → coder", argumentHint: "[задача]", group: "mode" },
+  { name: "council-review", description: "Совет ревьюеров", argumentHint: "[задача]", group: "mode" },
   {
     name: "auto-mode",
-    description: "Авто-выбор team/council/plan под задачу",
+    description: "Auto только high-confidence team/council/plan/direct",
     argumentHint: "[on|off|status]",
     group: "mode",
     aliases: ["autoroute"],
+    subcommands: [
+      { name: "on", description: "Включить auto-route" },
+      { name: "off", description: "Выключить auto-route" },
+      { name: "status", description: "Статус auto-route" },
+    ],
   },
 
   // memory
-  { name: "memory", description: "Память проекта (MEMORY.md / Cognee)", argumentHint: "[add|status|explain|sync|improve|clear]", group: "memory" },
-  { name: "dream", description: "Консолидация сессий → MEMORY.md", argumentHint: "[status|force]", group: "memory" },
-  { name: "kairos", description: "Проактивный обзор workspace", argumentHint: "[status|full]", group: "memory" },
+  {
+    name: "memory",
+    description: "Память проекта (MEMORY.md / Cognee)",
+    argumentHint: "[add|status|explain|sync|improve|clear|show]",
+    group: "memory",
+    subcommands: [
+      { name: "show", description: "Показать MEMORY.md" },
+      { name: "add", description: "Добавить запись", argumentHint: "<текст>" },
+      { name: "status", description: "Markdown + Cognee status" },
+      { name: "explain", description: "Последний recall / provenance" },
+      { name: "sync", description: "MEMORY.md → Cognee" },
+      { name: "improve", description: "Обогатить граф Cognee" },
+      { name: "clear", description: "Очистить память проекта" },
+      { name: "help", description: "Справка по /memory" },
+    ],
+  },
+  {
+    name: "dream",
+    description: "Консолидация сессий → MEMORY.md",
+    argumentHint: "[status|force]",
+    group: "memory",
+    subcommands: [
+      { name: "status", description: "Очередь / last dream" },
+      { name: "force", description: "Пересобрать MEMORY.md" },
+    ],
+  },
+  {
+    name: "kairos",
+    description: "Проактивный обзор workspace",
+    argumentHint: "[status|full]",
+    group: "memory",
+    subcommands: [
+      { name: "status", description: "Краткий статус сигналов" },
+      { name: "full", description: "Полный отчёт + синтез" },
+    ],
+  },
 
   // tools
   {
@@ -93,6 +167,28 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   },
   { name: "skills", description: "Список skills", group: "tools" },
   { name: "plugins", description: "MCP-плагины", group: "tools" },
+  {
+    name: "critique",
+    description: "Критик кода: советы по diff после правок",
+    argumentHint: "[fix|focus …]",
+    group: "tools",
+    aliases: ["review-diff", "critic"],
+    subcommands: [
+      { name: "fix", description: "Исправить critical findings из последнего critique" },
+      { name: "focus", description: "Критика с фокусом", argumentHint: "<тема>" },
+    ],
+  },
+  {
+    name: "todos",
+    description: "Показать / очистить live ToDo (update_todo)",
+    argumentHint: "[clear]",
+    group: "tools",
+    aliases: ["todo"],
+    subcommands: [
+      { name: "clear", description: "Очистить checklist" },
+      { name: "show", description: "Показать текущий ToDo" },
+    ],
+  },
   { name: "fix-review", description: "Исправить findings Council Review", group: "tools" },
 
   // system
@@ -141,6 +237,81 @@ export function isExactSlashCommand(input: string): boolean {
   return Boolean(resolveSlashCommand(normalized));
 }
 
+export function getSubcommands(commandName: string): SlashSubcommand[] {
+  const command = resolveSlashCommand(commandName);
+  return command?.subcommands ?? [];
+}
+
+/** Filter subcommands by typed prefix after `/cmd `. */
+export function completeSlashArguments(commandName: string, argumentPrefix: string): Array<{
+  value: string;
+  label: string;
+  description?: string;
+}> {
+  const prefix = argumentPrefix.trim().toLowerCase();
+  // Only complete the first token (subcommand). Free-text args stay free.
+  const first = prefix.split(/\s+/)[0] ?? "";
+  if (/\s/.test(argumentPrefix.trimEnd()) && argumentPrefix.trim().includes(" ")) {
+    // User already picked a subcommand and is typing its payload — no list.
+    const sub = getSubcommands(commandName).find((item) => item.name === first);
+    if (sub?.argumentHint) return [];
+    return [];
+  }
+  return getSubcommands(commandName)
+    .filter((item) => !first || item.name.startsWith(first))
+    .map((item) => ({
+      value: item.name + (item.argumentHint ? " " : ""),
+      label: item.name,
+      description: item.argumentHint ? `${item.description} ${item.argumentHint}` : item.description,
+    }));
+}
+
+/** Help text for a command that has subcommands (e.g. /memory). */
+export function formatSubcommandHelp(commandName: string): string {
+  const command = resolveSlashCommand(commandName);
+  if (!command) return `Неизвестная команда: /${commandName}`;
+  const subs = command.subcommands ?? [];
+  const lines = [
+    `/${command.name} — ${command.description}`,
+    "",
+  ];
+  if (!subs.length) {
+    lines.push(command.argumentHint ? `Использование: /${command.name} ${command.argumentHint}` : `Использование: /${command.name}`);
+    return lines.join("\n");
+  }
+  lines.push("Подкоманды:");
+  for (const sub of subs) {
+    const hint = sub.argumentHint ? ` ${sub.argumentHint}` : "";
+    lines.push(`  /${command.name} ${sub.name}${hint.padEnd(Math.max(2, 16 - sub.name.length))}  ${sub.description}`);
+  }
+  if (command.name === "memory") {
+    lines.push("");
+    lines.push("Без аргументов: показать MEMORY.md (как /memory show).");
+    lines.push("Также: /dream · /kairos");
+  }
+  return lines.join("\n");
+}
+
+/** SlashCommand objects for pi-tui CombinedAutocompleteProvider (incl. arg completion). */
+export function getAutocompleteSlashCommands(): Array<{
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  getArgumentCompletions?: (argumentPrefix: string) => Array<{ value: string; label: string; description?: string }> | null;
+}> {
+  return SLASH_COMMANDS.map((command) => ({
+    name: command.name,
+    description: command.description,
+    argumentHint: command.argumentHint,
+    getArgumentCompletions: command.subcommands?.length
+      ? (argumentPrefix: string) => {
+        const items = completeSlashArguments(command.name, argumentPrefix);
+        return items.length ? items : null;
+      }
+      : undefined,
+  }));
+}
+
 /** Grouped command list for Ctrl+K palette. */
 export function getPaletteItems(): Array<{ value: string; label: string; description: string }> {
   const items: Array<{ value: string; label: string; description: string }> = [];
@@ -171,9 +342,14 @@ export function formatInteractiveHelp(): string {
     }
     lines.push("");
   }
+  lines.push("Память (вторая часть команды):");
+  lines.push("  /memory show|add|status|explain|sync|improve|clear");
+  lines.push("  /dream status|force   ·  /kairos status|full");
+  lines.push("");
   lines.push("Подсказки:");
   lines.push("  /new — новая сессия · /clear — только очистить экран TUI");
   lines.push("  /provider + /models — всем ролям · /roles — по ролям");
-  lines.push("  /yolo — auto-approve · Ctrl+K — палитра · Ctrl+O — свернуть блоки");
+  lines.push("  /yolo — auto-approve · Tab после /memory — подкоманды");
+  lines.push("  Ctrl+K — палитра · Ctrl+O — свернуть блоки · @ — файл");
   return lines.join("\n");
 }

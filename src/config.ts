@@ -227,7 +227,9 @@ export async function addProviderConfig(
   workspace: string,
   explicitPath: string | undefined,
   provider: { name: string; baseUrl: string; apiKeyEnv?: string; model: string; transport?: "chat_completions" | "responses"; toolMode?: "auto" | "native" | "text" },
+  options: { applyToAllRoles?: boolean } = {},
 ): Promise<string> {
+  const applyToAllRoles = options.applyToAllRoles !== false;
   const name = provider.name.trim();
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name)) throw new Error("Provider name must start with a letter and use only letters, numbers, _ or -.");
   let baseUrl: URL;
@@ -262,19 +264,21 @@ export async function addProviderConfig(
     ...(apiKeyEnv ? { apiKeyEnv } : {}),
   };
   input.providers = providers;
-  const roles = input.roles && typeof input.roles === "object" && !Array.isArray(input.roles)
-    ? input.roles as Record<string, Record<string, unknown>>
-    : {};
-  for (const role of ["orchestrator", "coder", "architect", "reviewer", "judge", "compactor"]) {
-    roles[role] = {
-      ...roles[role],
-      provider: name,
-      model,
-      ...( /\bkimi\b/i.test(model) ? { temperature: 1 } : {}),
-    };
+  if (applyToAllRoles) {
+    const roles = input.roles && typeof input.roles === "object" && !Array.isArray(input.roles)
+      ? input.roles as Record<string, Record<string, unknown>>
+      : {};
+    for (const role of ["orchestrator", "coder", "architect", "reviewer", "judge", "compactor"]) {
+      roles[role] = {
+        ...roles[role],
+        provider: name,
+        model,
+        ...( /\bkimi\b/i.test(model) ? { temperature: 1 } : {}),
+      };
+    }
+    input.roles = roles;
+    input.defaultProvider = name;
   }
-  input.roles = roles;
-  input.defaultProvider = name;
   await writeFile(target, `${JSON.stringify(input, null, 2)}\n`, "utf8");
   return target;
 }

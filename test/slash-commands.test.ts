@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  completeSlashArguments,
   findSlashCommands,
   formatInteractiveHelp,
+  formatSubcommandHelp,
+  getAutocompleteSlashCommands,
   getPaletteItems,
   getPrimaryCommands,
+  getSubcommands,
   isExactSlashCommand,
   resolveSlashCommand,
 } from "../src/slash-commands.ts";
@@ -54,6 +58,31 @@ test("interactive help is grouped and short", () => {
   assert.match(help, /Модели:/);
   assert.match(help, /\/roles/);
   assert.match(help, /\/new — новая сессия/);
+  assert.match(help, /\/memory show\|add/);
   assert.ok(!help.includes("/model ")); // no alias spam
-  assert.ok(help.split("\n").length < 55);
+  assert.ok(help.split("\n").length < 65);
+});
+
+test("memory and related commands expose subcommand completions", () => {
+  const mem = getSubcommands("memory").map((item) => item.name);
+  assert.ok(mem.includes("add"));
+  assert.ok(mem.includes("status"));
+  assert.ok(mem.includes("explain"));
+  assert.ok(mem.includes("show"));
+
+  const adds = completeSlashArguments("memory", "ad");
+  assert.deepEqual(adds.map((item) => item.label), ["add"]);
+  assert.ok(adds[0].value.startsWith("add"));
+
+  // After subcommand + space, free-text args are not forced from the list.
+  assert.deepEqual(completeSlashArguments("memory", "add foo"), []);
+
+  const help = formatSubcommandHelp("memory");
+  assert.match(help, /\/memory add/);
+  assert.match(help, /\/memory status/);
+
+  const auto = getAutocompleteSlashCommands().find((command) => command.name === "memory");
+  assert.ok(auto?.getArgumentCompletions);
+  const items = auto!.getArgumentCompletions!("st");
+  assert.ok(items?.some((item) => item.label === "status"));
 });

@@ -986,7 +986,7 @@ export class InteractiveTui {
     const fields: Array<{ label: string; key: "name" | "baseUrl" | "apiKey" | "model" | "toolMode"; optional?: boolean; initial?: string }> = [
       { label: "Имя провайдера", key: "name", initial: preset.name },
       { label: "Базовый URL OpenAI-совместимого API", key: "baseUrl", initial: preset.baseUrl },
-      { label: "API-ключ (хранится локально, не в Git)", key: "apiKey", optional: true },
+      { label: "API-ключ (optional)", key: "apiKey", optional: true },
       { label: "Название модели для ролей Fuse", key: "model", initial: preset.model },
       { label: "Режим инструментов: auto, native или text", key: "toolMode", initial: preset.toolMode ?? "auto" },
     ];

@@ -9,12 +9,14 @@
   "files": [
     "bin",
     "src",
+    "web",
     "README.md",
     "LICENSE",
     "jevio.config.example.json"
   ],
   "scripts": {
     "start": "node src/cli.ts",
+    "web": "node src/web-server.ts",
     "test": "node --test --test-isolation=none test/*.test.ts",
     "test:cloud": "node --test --test-isolation=none test/cloud-memory.integration.ts",
     "check": "node --check src/cli.ts"

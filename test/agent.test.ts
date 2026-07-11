@@ -41,11 +41,38 @@ test("quality protocol is injected for agents but not compactor", () => {
   assert.match(buildSystemPrompt("coder", context), new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(buildSystemPrompt("orchestrator", context), /outperform the same model|Fuse quality protocol/i);
   // Fable-inspired agentic patterns (distilled, not product identity).
-  assert.match(buildSystemPrompt("coder", context), /Scale tool use to complexity|When you have enough evidence to act/i);
+  assert.match(buildSystemPrompt("coder", context), /Scale tool use to complexity|enough evidence/i);
   assert.match(buildSystemPrompt("coder", context), /Skills first|load_skill/i);
   assert.match(buildSystemPrompt("coder", context), /Don't add features, refactors|smallest correct change/i);
   assert.doesNotMatch(buildSystemPrompt("compactor", context), /Fuse quality protocol/);
   assert.doesNotMatch(buildSystemPrompt("coder", context), /Claude Fable|Anthropic|Mythos/i);
+});
+
+test("live todos are injected into system prompt for agents", () => {
+  const withTodos = {
+    ...context,
+    todos: [
+      { content: "Read config", status: "completed" as const },
+      { content: "Edit cli", status: "in_progress" as const },
+    ],
+  };
+  const prompt = buildSystemPrompt("coder", withTodos);
+  assert.match(prompt, /Live ToDo checklist/);
+  assert.match(prompt, /Read config/);
+  assert.match(prompt, /Edit cli/);
+  assert.doesNotMatch(buildSystemPrompt("coder", context), /Live ToDo checklist/);
+});
+
+test("ask_user is mandatory in system prompt when host provides askUser", () => {
+  const interactive = {
+    ...context,
+    askUser: async () => "ok",
+  };
+  assert.match(buildSystemPrompt("coder", interactive), /ask_user is MANDATORY/);
+  assert.match(buildSystemPrompt("orchestrator", interactive), /MUST call ask_user/);
+  assert.match(buildSystemPrompt("coder", interactive), /Do NOT list options in Markdown/);
+  // Without askUser callback — no interactive pressure block
+  assert.doesNotMatch(buildSystemPrompt("coder", context), /ask_user is MANDATORY/);
 });
 
 test("system prompt includes host clock year and date", () => {
