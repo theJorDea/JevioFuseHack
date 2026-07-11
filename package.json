@@ -20,6 +20,8 @@
     "test": "node scripts/run-tests.mjs test/*.test.ts",
     "test:cloud": "node scripts/run-tests.mjs test/cloud-memory.integration.ts",
     "benchmark:memory": "node scripts/memory-benchmark.mjs",
+    "benchmark:memory:check": "node scripts/check-memory-benchmark.mjs",
+    "benchmark:coding": "node scripts/coding-benchmark.mjs",
     "check": "node --check src/cli.ts"
   },
   "engines": {
@@ -27,6 +29,11 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.80.5"
+    "@earendil-works/pi-tui": "^0.80.5",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
+    "@opentelemetry/resources": "^2.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.9.0",
+    "@opentelemetry/sdk-trace-node": "^2.9.0"
   }
 }

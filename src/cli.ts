@@ -55,6 +55,7 @@ import { discoverSkills } from "./skills.ts";
 import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol-index.ts";
 import { InteractiveTui } from "./interactive-tui.ts";
 import { McpPluginManager } from "./mcp.ts";
+import { addTraceEvent, initializeTelemetry, setTraceAttributes, shutdownTelemetry, withTraceSpan } from "./telemetry.ts";
 import { formatAskUserNudge, isImplementationRequest, needsUserClarification, recommendExecutionMode } from "./task-intent.ts";
 import { defaultModel, discoverLocalProviders, isSupportedNodeVersion, listProviderModels } from "./setup.ts";
 import { formatInteractiveHelp, formatSubcommandHelp, resolveSlashCommand } from "./slash-commands.ts";
@@ -345,6 +346,14 @@ async function doctor(options: CliOptions): Promise<void> {
  } else {
  console.log("INFO Cognee memory: disabled; using Markdown memory only");
  }
+ if (config.telemetry.enabled) {
+ const target = config.telemetry.exporter === "otlp"
+ ? (config.telemetry.endpointEnv ? process.env[config.telemetry.endpointEnv] ?? `missing ${config.telemetry.endpointEnv}` : config.telemetry.endpoint)
+ : "stdout";
+ console.log(`OK telemetry: ${config.telemetry.exporter}; target ${target}; sample ${config.telemetry.sampleRatio}`);
+ } else {
+ console.log("INFO telemetry: disabled");
+ }
  if (config.codeIndex.enabled && config.codeIndex.backend !== "builtin") {
  const ctags = await getCtagsStatus();
  if (ctags.available) console.log(`OK code index: ${ctags.detail}`);
@@ -493,6 +502,7 @@ async function main(): Promise<void> {
  return /^(y|yes)$/i.test(answer.trim());
  };
  const { config, context } = await makeContext(options, confirm);
+ initializeTelemetry(config.telemetry);
  const projectIdentity = await loadProjectIdentity(options.workspace);
  const mcpPlugins = await McpPluginManager.create(options.workspace, config);
  context.plugins = mcpPlugins;
@@ -582,6 +592,10 @@ async function main(): Promise<void> {
  let turnVerifications: VerificationRecord[] = [];
  context.recordVerification = (record) => {
  turnVerifications.push(record);
+ addTraceEvent("jevio.verification", {
+ "jevio.verification.command": record.command.slice(0, 200),
+ "jevio.verification.exit_code": String(record.exitCode),
+ });
  };
  let successfulTurns = 0;
  /** Last lightweight critique (for /critique fix). */
@@ -946,6 +960,7 @@ async function main(): Promise<void> {
  }
  terminal?.close();
  await mcpPlugins.close();
+ await shutdownTelemetry();
  })();
  }
  return finalization;
@@ -974,7 +989,7 @@ async function main(): Promise<void> {
  history = compacted.history;
  return `Context compacted: ~${beforeTokens} -> ~${estimateHistoryTokens(history)} tokens; ${compacted.retainedMessages.length} recent messages retained.`;
  };
- const executeTask = async (task: string): Promise<string> => {
+ const executeTaskCore = async (task: string): Promise<string> => {
  turnVerifications = [];
  modeSuggestionUsed = false;
  pendingModeRestart = undefined;
@@ -1021,6 +1036,7 @@ async function main(): Promise<void> {
  planMode.approvedPlan = undefined;
  effectiveMode = "plan";
  }
+ setTraceAttributes({ "jevio.execution.mode": effectiveMode });
  context.retrievedMemory = undefined;
  if (cogneeMemory.enabled) {
  try {
@@ -1274,6 +1290,13 @@ ${agentTask}`;
 
  return runInMode(effectiveMode);
  };
+ const executeTask = (task: string): Promise<string> => withTraceSpan("jevio.task", {
+ "jevio.project.id": projectIdentity.id,
+ "jevio.session.id": active.info.id,
+ "jevio.execution.mode": mode,
+ "jevio.task.characters": task.length,
+ "jevio.host": "cli",
+ }, async () => executeTaskCore(task));
 
  const resumeSelectedSession = async (selected: LoadedSession): Promise<string> => {
  if (selected.info.path !== active.info.path) await discardEmptySession(active.info);

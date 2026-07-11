@@ -77,6 +77,13 @@
       "rememberCompactions": true
     }
   },
+  "telemetry": {
+    "enabled": false,
+    "serviceName": "jevio",
+    "exporter": "console",
+    "endpointEnv": "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "sampleRatio": 1
+  },
   "plugins": {
     "mcp": {
       "example": {

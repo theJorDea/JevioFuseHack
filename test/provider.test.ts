@@ -20,6 +20,7 @@ test("Responses transport normalizes OpenAI function calls", async (t) => {
         { type: "message", content: [{ type: "output_text", text: "Inspecting." }] },
         { type: "function_call", call_id: "call_1", name: "list_files", arguments: "{\"path\":\"src\"}" },
       ],
+      usage: { input_tokens: 120, output_tokens: 30, total_tokens: 150 },
     }), { headers: { "content-type": "application/json" } });
   };
   const client = new OpenAICompatibleClient(
@@ -35,6 +36,7 @@ test("Responses transport normalizes OpenAI function calls", async (t) => {
   assert.equal(requestBody.instructions, "System");
   assert.equal(result.content, "Inspecting.");
   assert.deepEqual(result.toolCalls, [{ id: "call_1", name: "list_files", arguments: "{\"path\":\"src\"}" }]);
+  assert.deepEqual(result.usage, { inputTokens: 120, outputTokens: 30, totalTokens: 150 });
 });
 
 test("stream transport retries once without streaming after LM Studio termination", async (t) => {

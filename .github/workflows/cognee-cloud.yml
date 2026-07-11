@@ -1,0 +1,47 @@
+name: Cognee Cloud memory proof
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cognee-cloud-memory
+  cancel-in-progress: false
+
+jobs:
+  lifecycle-and-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COGNEE_BASE_URL: ${{ secrets.COGNEE_BASE_URL }}
+      COGNEE_API_KEY: ${{ secrets.COGNEE_API_KEY }}
+      COGNEE_TENANT_ID: ${{ secrets.COGNEE_TENANT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - name: Require Cloud secrets
+        shell: bash
+        run: |
+          test -n "$COGNEE_BASE_URL"
+          test -n "$COGNEE_API_KEY"
+          test -n "$COGNEE_TENANT_ID"
+      - run: npm test
+      - run: npm run test:cloud
+      - run: npm run benchmark:memory
+      - run: npm run benchmark:memory:check
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cognee-memory-benchmark-${{ github.run_id }}
+          path: benchmark/results/
+          if-no-files-found: error
+          retention-days: 30

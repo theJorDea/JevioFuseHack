@@ -1,6 +1,7 @@
 import { OpenAICompatibleClient } from "./provider/openai-compatible.ts";
 import { formatSkillCatalog } from "./skills.ts";
 import { executeTool, toolsForRole } from "./tools.ts";
+import { withTraceSpan } from "./telemetry.ts";
 import type {
  AgentResult,
  ChatMessage,
@@ -393,11 +394,24 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
   options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
  pruneOldToolResults(messages, options.config.agent.keepRecentToolResults);
  let receivedThinking = false;
- const response = await client.complete({ messages, tools: requestTools }, (delta) => {
+ const response = await withTraceSpan("jevio.model.request", {
+ "gen_ai.system": providerName,
+ "gen_ai.request.model": roleConfig.model,
+ "jevio.agent.role": options.role,
+ "jevio.agent.turn": turn,
+ "jevio.message.count": messages.length,
+ }, async (span) => {
+ const result = await client.complete({ messages, tools: requestTools }, (delta) => {
  if (delta.type !== "reasoning" || !delta.delta) return;
  receivedThinking = true;
  options.onEvent?.({ type: "thinking_delta", role: options.role, detail: delta.delta });
  }, signal);
+ span.setAttribute("jevio.tool.request_count", result.toolCalls.length);
+ if (result.usage?.inputTokens !== undefined) span.setAttribute("gen_ai.usage.input_tokens", result.usage.inputTokens);
+ if (result.usage?.outputTokens !== undefined) span.setAttribute("gen_ai.usage.output_tokens", result.usage.outputTokens);
+ if (result.usage?.totalTokens !== undefined) span.setAttribute("jevio.usage.total_tokens", result.usage.totalTokens);
+ return result;
+ });
  if (receivedThinking) options.onEvent?.({ type: "thinking_done", role: options.role, detail: "" });
  messages.push({
  role: "assistant",
@@ -497,7 +511,14 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
  webSearchCalls += 1;
  if (webSearchCalls > 4) throw new Error("Web search limit reached for this task (max 4). Use existing results, web_fetch a known URL, or continue without more search.");
  }
- output = await executeTool(call.name, input, toolContext);
+ output = await withTraceSpan("jevio.tool.call", {
+ "jevio.tool.name": call.name,
+ "jevio.agent.role": options.role,
+ }, async (span) => {
+ const result = await executeTool(call.name, input, toolContext);
+ span.setAttribute("jevio.tool.output_characters", result.length);
+ return result;
+ });
  throwIfAborted(signal);
  } catch (error) {
  if (signal?.aborted) throw error;

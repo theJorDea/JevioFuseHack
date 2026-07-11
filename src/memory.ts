@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { CogneeMemoryConfig, MemoryRecallItem, MemoryRecallSnapshot } from "./types.ts";
 import type { MemoryProvenanceRecord } from "./memory-journal.ts";
 import { legacyProjectDataset } from "./project-identity.ts";
+import { withTraceSpan } from "./telemetry.ts";
 
 type Fetcher = typeof fetch;
 
@@ -134,6 +135,22 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function retryDelay(response: Response, attempt: number): number {
+  const header = response.headers.get("retry-after")?.trim();
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(10_000, seconds * 1_000);
+    const date = Date.parse(header);
+    if (Number.isFinite(date)) return Math.max(0, Math.min(10_000, date - Date.now()));
+  }
+  return Math.min(5_000, 200 * (2 ** attempt) + Math.floor(Math.random() * 100));
+}
+
+function retrySafe(route: string, method: string): boolean {
+  if (method === "GET" || method === "HEAD") return true;
+  return /^\/api\/v1\/(?:recall|search|improve|memify|forget)(?:[/?]|$)/.test(route);
+}
+
 export class CogneeMemory {
   readonly dataset: string;
   private readonly baseUrl: string;
@@ -182,18 +199,46 @@ export class CogneeMemory {
   private async request(route: string, init: RequestInit = {}): Promise<unknown> {
     const issue = this.configurationIssue();
     if (issue) throw new Error(issue);
-    const response = await this.fetcher(`${this.baseUrl}${route}`, {
-      ...init,
-      signal: AbortSignal.timeout(this.config.timeoutMs),
+    return withTraceSpan("jevio.memory.cognee.http", {
+      "http.request.method": init.method ?? "GET",
+      "url.path": route.split("?")[0],
+      "jevio.memory.dataset": this.dataset,
+    }, async (span) => {
+      const method = (init.method ?? "GET").toUpperCase();
+      const canRetry = retrySafe(route, method);
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          const response = await this.fetcher(`${this.baseUrl}${route}`, {
+            ...init,
+            signal: AbortSignal.timeout(this.config.timeoutMs),
+          });
+          span.setAttribute("http.response.status_code", response.status);
+          const text = await response.text();
+          if (!response.ok) {
+            if (canRetry && [429, 502, 503, 504].includes(response.status) && attempt < 3) {
+              const waitMs = retryDelay(response, attempt);
+              span.addEvent("jevio.retry", { attempt: attempt + 1, wait_ms: waitMs, status: response.status });
+              await delay(waitMs);
+              continue;
+            }
+            throw new CogneeHttpError(response.status, text);
+          }
+          span.setAttribute("jevio.retry.count", attempt);
+          if (!text) return undefined;
+          try {
+            return JSON.parse(text);
+          } catch {
+            return text;
+          }
+        } catch (error) {
+          if (!canRetry || error instanceof CogneeHttpError || attempt >= 3) throw error;
+          const waitMs = Math.min(5_000, 200 * (2 ** attempt) + Math.floor(Math.random() * 100));
+          span.addEvent("jevio.retry", { attempt: attempt + 1, wait_ms: waitMs, error: "network" });
+          await delay(waitMs);
+        }
+      }
+      throw new Error("Cognee retry loop exhausted.");
     });
-    const text = await response.text();
-    if (!response.ok) throw new CogneeHttpError(response.status, text);
-    if (!text) return undefined;
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
   }
 
   private async resolveRememberedDataId(

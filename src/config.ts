@@ -1,6 +1,6 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CodeIndexConfig, CogneeMemoryConfig, JevioConfig, McpServerConfig, PartialJevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
+import type { CodeIndexConfig, CogneeMemoryConfig, JevioConfig, McpServerConfig, PartialJevioConfig, ProviderConfig, RoleConfig, RoleName, TelemetryConfig } from "./types.ts";
 
 const DEFAULT_CONFIG: JevioConfig = {
   defaultProvider: "ollama",
@@ -53,6 +53,12 @@ const DEFAULT_CONFIG: JevioConfig = {
       rememberCompletedTurns: true,
       rememberCompactions: true,
     },
+  },
+  telemetry: {
+    enabled: false,
+    serviceName: "jevio",
+    exporter: "console",
+    sampleRatio: 1,
   },
   plugins: {
     mcp: {},
@@ -116,6 +122,27 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
   } catch {
     throw new Error("memory.cognee.baseUrl must be an absolute http(s) URL.");
   }
+  const telemetry = { ...DEFAULT_CONFIG.telemetry, ...input.telemetry } as TelemetryConfig;
+  if (!telemetry.serviceName.trim()) throw new Error("telemetry.serviceName must not be empty.");
+  if (!["console", "otlp"].includes(telemetry.exporter)) throw new Error("Invalid telemetry.exporter.");
+  if (!Number.isFinite(telemetry.sampleRatio) || telemetry.sampleRatio < 0 || telemetry.sampleRatio > 1) {
+    throw new Error("telemetry.sampleRatio must be between 0 and 1.");
+  }
+  if (telemetry.endpointEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(telemetry.endpointEnv)) {
+    throw new Error("telemetry.endpointEnv must be an environment variable name.");
+  }
+  const telemetryEndpoint = telemetry.endpointEnv ? process.env[telemetry.endpointEnv]?.trim() : telemetry.endpoint?.trim();
+  if (telemetry.exporter === "otlp" && telemetry.enabled && !telemetryEndpoint) {
+    throw new Error("Enabled OTLP telemetry requires telemetry.endpoint or telemetry.endpointEnv.");
+  }
+  if (telemetryEndpoint) {
+    try {
+      const url = new URL(telemetryEndpoint);
+      if (!/^https?:$/.test(url.protocol)) throw new Error();
+    } catch {
+      throw new Error("telemetry endpoint must be an absolute http(s) URL.");
+    }
+  }
   for (const [name, provider] of Object.entries(input.providers ?? {})) {
     if (provider.toolMode !== undefined && !["auto", "native", "text"].includes(provider.toolMode)) {
       throw new Error(`Invalid toolMode for provider '${name}'.`);
@@ -173,6 +200,7 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
     compaction: { ...DEFAULT_CONFIG.compaction, ...input.compaction },
     codeIndex: { ...DEFAULT_CONFIG.codeIndex, ...input.codeIndex } as CodeIndexConfig,
     memory: { cognee },
+    telemetry,
     plugins: { mcp: mcp as Record<string, McpServerConfig> },
     permissions: { ...DEFAULT_CONFIG.permissions, ...input.permissions, shellMode },
   };

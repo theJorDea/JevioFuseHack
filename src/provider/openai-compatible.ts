@@ -17,6 +17,7 @@ interface OpenAIChoice {
 interface OpenAIResponse {
   choices?: OpenAIChoice[];
   error?: { message?: string };
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
 
 interface OpenAIToolCall {
@@ -49,6 +50,7 @@ interface ResponsesResponse {
   output?: ResponsesOutput[];
   output_text?: string;
   error?: { message?: string };
+  usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
 }
 
 function appendToolName(current: string, fragment: string): string {
@@ -124,7 +126,11 @@ export class OpenAICompatibleClient implements ModelClient {
       const message = body.choices?.[0]?.message;
       if (!message) throw new Error("Model endpoint returned no assistant message.");
       if (message.reasoning_content) onDelta?.({ type: "reasoning", delta: message.reasoning_content });
-      return modelResponse(message);
+      return modelResponse(message, body.usage ? {
+        inputTokens: body.usage.prompt_tokens,
+        outputTokens: body.usage.completion_tokens,
+        totalTokens: body.usage.total_tokens,
+      } : undefined);
     }
 
     if (!response.body) throw new Error("Model endpoint returned an empty streaming response.");
@@ -199,7 +205,11 @@ export class OpenAICompatibleClient implements ModelClient {
       function: { name: item.name!, arguments: item.arguments ?? "{}" },
     }));
     if (content) onDelta?.({ type: "text", delta: content });
-    return modelResponse({ content, ...(calls.length ? { tool_calls: calls } : {}) });
+    return modelResponse({ content, ...(calls.length ? { tool_calls: calls } : {}) }, body.usage ? {
+      inputTokens: body.usage.input_tokens,
+      outputTokens: body.usage.output_tokens,
+      totalTokens: body.usage.total_tokens,
+    } : undefined);
   }
 }
 
@@ -216,7 +226,7 @@ function isTransientStreamError(error: unknown): boolean {
   return /terminated|fetch failed|socket|econnreset|premature|closed/i.test(errorMessage(error));
 }
 
-function modelResponse(message: OpenAIMessage): ModelResponse {
+function modelResponse(message: OpenAIMessage, usage?: ModelResponse["usage"]): ModelResponse {
   const toolCalls: ToolCall[] = (message.tool_calls ?? []).map((call, index) => ({
     id: call.id ?? `call_${index}`,
     name: call.function?.name ?? "",
@@ -233,7 +243,7 @@ function modelResponse(message: OpenAIMessage): ModelResponse {
     ...(message.reasoning_content ? { reasoning_content: message.reasoning_content } : {}),
     ...(providerToolCalls.length ? { tool_calls: providerToolCalls } : {}),
   };
-  return { content: message.content ?? "", toolCalls, rawMessage };
+  return { content: message.content ?? "", toolCalls, rawMessage, ...(usage ? { usage } : {}) };
 }
 
 async function streamResponse(body: ReadableStream<Uint8Array>, onDelta: (delta: ModelDelta) => void): Promise<ModelResponse> {

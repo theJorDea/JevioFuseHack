@@ -21,6 +21,7 @@ import {
 import { discoverSkills } from "./skills.ts";
 import { buildRepositoryMap } from "./symbol-index.ts";
 import { formatAskUserNudge, isImplementationRequest, needsUserClarification } from "./task-intent.ts";
+import { addTraceEvent, initializeTelemetry, setTraceAttributes, withTraceSpan } from "./telemetry.ts";
 import type {
   AskUserOption,
   AskUserRequest,
@@ -84,6 +85,7 @@ export class WebHost {
 
   async reload(): Promise<void> {
     this.config = await loadConfig(this.workspace);
+    initializeTelemetry(this.config.telemetry);
     try {
       this.active = await loadSession(this.workspace, "latest");
     } catch {
@@ -315,7 +317,12 @@ export class WebHost {
       notify = resolve;
     });
 
-    const run = this.execute(text, push, controller.signal).then(
+    const run = withTraceSpan("jevio.task", {
+      "jevio.session.id": this.active.info.id,
+      "jevio.execution.mode": this.mode,
+      "jevio.task.characters": text.length,
+      "jevio.host": "web",
+    }, async () => this.execute(text, push, controller.signal)).then(
       (content) => push({ type: "done", content, sessionId: this.active.info.id }),
       (error) => push({
         type: "error",
@@ -344,6 +351,7 @@ export class WebHost {
     const skills = await discoverSkills(this.workspace);
     this.projectMemory = await loadProjectMemory(this.workspace);
     const projectIdentity = await loadProjectIdentity(this.workspace);
+    setTraceAttributes({ "jevio.project.id": projectIdentity.id });
     const cognee = new CogneeMemory(
       cogneeConfigForProject(this.config.memory.cognee, projectIdentity),
       this.workspace,
@@ -433,6 +441,10 @@ export class WebHost {
       },
       recordVerification: (record) => {
         turnVerifications.push(record);
+        addTraceEvent("jevio.verification", {
+          "jevio.verification.command": record.command.slice(0, 200),
+          "jevio.verification.exit_code": String(record.exitCode),
+        });
       },
       enterPlanMode: async (goal) => {
         planMode.active = true;

@@ -1,0 +1,35 @@
+[
+  {
+    "id": "provider-timeout",
+    "task": "Обнови настройку provider timeout согласно решению из прошлой сессии. Не угадывай значение; используй память проекта.",
+    "memory": "Проверенное решение BENCH-TIMEOUT: providerTimeoutMs должен быть равен 45000 миллисекунд.",
+    "files": {
+      "src/settings.js": "export const providerTimeoutMs = 10000;\n"
+    },
+    "expect": [
+      { "path": "src/settings.js", "includes": ["45000"], "forbidden": ["10000"] }
+    ]
+  },
+  {
+    "id": "error-prefix",
+    "task": "Обнови формат пользовательской ошибки согласно принятому ранее соглашению проекта.",
+    "memory": "Проверенное решение BENCH-ERROR: все пользовательские ошибки CLI начинаются с префикса [JEVIO_ERROR].",
+    "files": {
+      "src/errors.js": "export function formatError(message) { return `Error: ${message}`; }\n"
+    },
+    "expect": [
+      { "path": "src/errors.js", "includes": ["[JEVIO_ERROR]"], "forbidden": ["Error: ${message}"] }
+    ]
+  },
+  {
+    "id": "health-route",
+    "task": "Исправь путь health endpoint согласно архитектурному решению из предыдущего разговора.",
+    "memory": "Проверенное решение BENCH-HEALTH: health endpoint проекта расположен по пути /api/healthz.",
+    "files": {
+      "src/routes.js": "export const healthEndpoint = '/health';\n"
+    },
+    "expect": [
+      { "path": "src/routes.js", "includes": ["/api/healthz"], "forbidden": ["'/health'"] }
+    ]
+  }
+]

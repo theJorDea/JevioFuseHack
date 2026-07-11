@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebHost, type WebStreamEvent } from "./web-host.ts";
+import { shutdownTelemetry } from "./telemetry.ts";
 import type { ExecutionMode } from "./types.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -223,9 +224,9 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<{ 
   const url = `http://${host}:${port}`;
   return {
     url,
-    close: () => new Promise((resolve, reject) => {
+    close: () => new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
-    }),
+    }).finally(() => shutdownTelemetry()),
   };
 }
 

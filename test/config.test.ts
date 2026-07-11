@@ -35,6 +35,27 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.memory.cognee.enabled, false);
   assert.equal(config.memory.cognee.baseUrl, "http://localhost:8000");
   assert.equal(config.memory.cognee.sessionAware, true);
+  assert.equal(config.telemetry.enabled, false);
+  assert.equal(config.telemetry.serviceName, "jevio");
+});
+
+test("loads and validates telemetry settings", async (t) => {
+  const workspace = path.join(tmpdir(), `.tmp-test-config-telemetry-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  process.env.JEVIO_TEST_OTLP = "http://localhost:4318/v1/traces";
+  t.after(() => delete process.env.JEVIO_TEST_OTLP);
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    telemetry: { enabled: true, exporter: "otlp", endpointEnv: "JEVIO_TEST_OTLP", sampleRatio: 0.25 },
+  }));
+  const config = await loadConfig(workspace);
+  assert.equal(config.telemetry.exporter, "otlp");
+  assert.equal(config.telemetry.sampleRatio, 0.25);
+
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({ telemetry: { sampleRatio: 2 } }));
+  await assert.rejects(() => loadConfig(workspace), /sampleRatio/);
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({ telemetry: { enabled: true, exporter: "otlp" } }));
+  await assert.rejects(() => loadConfig(workspace), /requires telemetry\.endpoint/);
 });
 
 test("loads disabled MCP plugin configs without enabling plugin approvals", async (t) => {

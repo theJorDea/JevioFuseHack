@@ -206,6 +206,22 @@ test("Cognee recall retries a transient database creation race", async () => {
   assert.equal(calls, 2);
 });
 
+test("Cognee retries safe requests after Retry-After but never duplicates remember", async () => {
+  let recallCalls = 0;
+  const memory = new CogneeMemory(config(), process.cwd(), async (input) => {
+    if (String(input).endsWith("/recall")) {
+      recallCalls += 1;
+      return recallCalls === 1
+        ? new Response("busy", { status: 503, headers: { "retry-after": "0" } })
+        : new Response(JSON.stringify({ results: [{ text: "recovered" }] }), { status: 200 });
+    }
+    return new Response("busy", { status: 503, headers: { "retry-after": "0" } });
+  });
+  assert.equal(await memory.recall("retry safely"), "recovered");
+  assert.equal(recallCalls, 2);
+  await assert.rejects(() => memory.remember("do not duplicate", undefined, "once.md"), /Cognee HTTP 503/);
+});
+
 test("Cognee recall falls back to the legacy search endpoint", async () => {
   const urls: string[] = [];
   const memory = new CogneeMemory(config(), process.cwd(), async (input) => {

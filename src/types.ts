@@ -69,6 +69,15 @@ export interface CogneeMemoryConfig {
  rememberCompactions: boolean;
 }
 
+export interface TelemetryConfig {
+ enabled: boolean;
+ serviceName: string;
+ exporter: "console" | "otlp";
+ endpoint?: string;
+ endpointEnv?: string;
+ sampleRatio: number;
+}
+
 export interface MemoryRecallItem {
  text: string;
  source: string;
@@ -96,6 +105,7 @@ export type PartialJevioConfig = {
  compaction?: Partial<JevioConfig["compaction"]>;
  codeIndex?: Partial<CodeIndexConfig>;
  memory?: { cognee?: Partial<CogneeMemoryConfig> };
+ telemetry?: Partial<TelemetryConfig>;
  plugins?: { mcp?: Record<string, Partial<McpServerConfig>> };
  permissions?: Partial<JevioConfig["permissions"]>;
 };
@@ -122,8 +132,9 @@ export interface JevioConfig {
  };
  codeIndex: CodeIndexConfig;
  memory: {
- cognee: CogneeMemoryConfig;
+  cognee: CogneeMemoryConfig;
  };
+ telemetry: TelemetryConfig;
  plugins: PluginConfig;
  permissions: {
  autoApproveWorkspaceWrites: boolean;
@@ -204,6 +215,11 @@ export interface ModelResponse {
  content: string;
  toolCalls: ToolCall[];
  rawMessage: ProviderRawMessage;
+ usage?: {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+ };
 }
 
 export type ModelDelta =

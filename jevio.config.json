@@ -7,7 +7,6 @@
       "apiKeyEnv": "COGNEE_API_KEY",
       "tenantIdEnv": "COGNEE_TENANT_ID",
       "authMode": "x-api-key",
-      "dataset": "agent_sessions",
       "timeoutMs": 60000,
       "maxResults": 6,
       "maxContextCharacters": 8000,
