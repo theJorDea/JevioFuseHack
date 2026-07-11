@@ -28,6 +28,7 @@ Never put JSX in a plain `.html` file: use `class` in HTML and `className` only 
 
 ## Design and interaction bar
 
+- For landings, portfolios, and marketing redesigns, also load the **design-taste** skill and follow its brief-inference + three dials (variance / motion / density). Avoid default LLM aesthetics (purple mesh heroes, three equal cards, Inter-on-slate).
 - Establish one clear visual direction: type scale, spacing rhythm, surface treatment, accent color, and content hierarchy.
 - Prefer a small set of strong sections over a generic collection of cards. Use generous space and large type when the request calls for a premium or editorial feel, but preserve readable line lengths and responsive behavior.
 - Make interactive elements semantic and keyboard accessible. Include visible focus states, meaningful labels, disabled/error states, and sensible mobile layouts.

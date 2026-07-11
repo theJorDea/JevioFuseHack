@@ -279,6 +279,96 @@ export async function addProviderConfig(
   return target;
 }
 
+/** Switch default provider for all roles; keeps each role's model unless applyDefaultModel is set. */
+export async function setDefaultProviderConfig(
+  workspace: string,
+  explicitPath: string | undefined,
+  providerName: string,
+  options: { applyDefaultModel?: boolean } = {},
+): Promise<string> {
+  const loaded = await loadConfig(workspace, explicitPath);
+  if (!loaded.providers[providerName]) throw new Error(`Unknown provider '${providerName}'.`);
+  const target = explicitPath ? path.resolve(explicitPath) : (await findConfig(workspace)) ?? path.join(workspace, "jevio.config.json");
+  let input: Record<string, unknown> = {};
+  try {
+    input = JSON.parse(await readFile(target, "utf8")) as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  input.defaultProvider = providerName;
+  const roles = input.roles && typeof input.roles === "object" && !Array.isArray(input.roles)
+    ? input.roles as Record<string, Record<string, unknown>>
+    : {};
+  const defaultModel = loaded.providers[providerName].defaultModel;
+  for (const role of ["orchestrator", "coder", "architect", "reviewer", "judge", "compactor"] as RoleName[]) {
+    const next: Record<string, unknown> = { ...roles[role], provider: providerName };
+    if (options.applyDefaultModel && defaultModel) {
+      next.model = defaultModel;
+      if (/\bkimi\b/i.test(defaultModel)) next.temperature = 1;
+    } else if (!next.model) {
+      next.model = defaultModel ?? loaded.roles[role].model;
+    }
+    roles[role] = next;
+  }
+  input.roles = roles;
+  await writeFile(target, `${JSON.stringify(input, null, 2)}\n`, "utf8");
+  return target;
+}
+
+/** Set one model on every role (and defaultModel of the active provider). Persists to jevio.config.json. */
+export async function setAllRolesModelConfig(
+  workspace: string,
+  explicitPath: string | undefined,
+  model: string,
+  providerName?: string,
+): Promise<string> {
+  const normalized = model.trim();
+  if (!normalized) throw new Error("Model name must not be empty.");
+  const loaded = await loadConfig(workspace, explicitPath);
+  const provider = providerName ?? loaded.defaultProvider;
+  if (!loaded.providers[provider]) throw new Error(`Unknown provider '${provider}'.`);
+
+  const target = explicitPath ? path.resolve(explicitPath) : (await findConfig(workspace)) ?? path.join(workspace, "jevio.config.json");
+  let input: Record<string, unknown> = {};
+  try {
+    input = JSON.parse(await readFile(target, "utf8")) as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  const providers = input.providers && typeof input.providers === "object" && !Array.isArray(input.providers)
+    ? input.providers as Record<string, unknown>
+    : {};
+  const existing = providers[provider] && typeof providers[provider] === "object" && !Array.isArray(providers[provider])
+    ? providers[provider] as Record<string, unknown>
+    : {};
+  providers[provider] = {
+    ...existing,
+    baseUrl: loaded.providers[provider].baseUrl,
+    defaultModel: normalized,
+    ...(loaded.providers[provider].transport ? { transport: loaded.providers[provider].transport } : {}),
+    ...(loaded.providers[provider].toolMode ? { toolMode: loaded.providers[provider].toolMode } : {}),
+    ...(loaded.providers[provider].apiKeyEnv ? { apiKeyEnv: loaded.providers[provider].apiKeyEnv } : {}),
+  };
+  input.providers = providers;
+  input.defaultProvider = provider;
+
+  const roles = input.roles && typeof input.roles === "object" && !Array.isArray(input.roles)
+    ? input.roles as Record<string, Record<string, unknown>>
+    : {};
+  for (const role of ["orchestrator", "coder", "architect", "reviewer", "judge", "compactor"] as RoleName[]) {
+    roles[role] = {
+      ...roles[role],
+      provider,
+      model: normalized,
+      ...(/\bkimi\b/i.test(normalized) ? { temperature: 1 } : {}),
+    };
+  }
+  input.roles = roles;
+  await writeFile(target, `${JSON.stringify(input, null, 2)}\n`, "utf8");
+  return target;
+}
+
 export async function setRoleProviderConfig(
   workspace: string,
   explicitPath: string | undefined,

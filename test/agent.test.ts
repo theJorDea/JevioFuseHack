@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { buildSystemPrompt, parseFallbackToolCalls, runAgent } from "../src/agent.ts";
+import { buildSystemPrompt, formatHostClock, getQualityProtocolForTests, parseFallbackToolCalls, runAgent } from "../src/agent.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import type { ToolContext } from "../src/types.ts";
 
@@ -34,6 +34,28 @@ test("repository map is injected only for planning roles", () => {
   assert.match(buildSystemPrompt("judge", context), /AuthService/);
   assert.doesNotMatch(buildSystemPrompt("coder", context), /<repository_map>/);
   assert.doesNotMatch(buildSystemPrompt("reviewer", context), /<repository_map>/);
+});
+
+test("quality protocol is injected for agents but not compactor", () => {
+  const marker = getQualityProtocolForTests().slice(0, 40);
+  assert.match(buildSystemPrompt("coder", context), new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(buildSystemPrompt("orchestrator", context), /outperform the same model|Fuse quality protocol/i);
+  // Fable-inspired agentic patterns (distilled, not product identity).
+  assert.match(buildSystemPrompt("coder", context), /Scale tool use to complexity|When you have enough evidence to act/i);
+  assert.match(buildSystemPrompt("coder", context), /Skills first|load_skill/i);
+  assert.match(buildSystemPrompt("coder", context), /Don't add features, refactors|smallest correct change/i);
+  assert.doesNotMatch(buildSystemPrompt("compactor", context), /Fuse quality protocol/);
+  assert.doesNotMatch(buildSystemPrompt("coder", context), /Claude Fable|Anthropic|Mythos/i);
+});
+
+test("system prompt includes host clock year and date", () => {
+  const fixed = new Date("2026-07-11T12:00:00.000Z");
+  assert.match(formatHostClock(fixed), /2026-07-11/);
+  assert.match(formatHostClock(fixed), /year 2026/);
+  const prompt = buildSystemPrompt("orchestrator", context);
+  assert.match(prompt, /Host clock \(UTC\)/);
+  assert.match(prompt, /year \d{4}/);
+  assert.match(prompt, /web_fetch|design-taste/);
 });
 
 test("retrieved memory is marked as untrusted historical context", () => {

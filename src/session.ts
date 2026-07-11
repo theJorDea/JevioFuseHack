@@ -348,4 +348,14 @@ export async function clearProjectMemory(workspace: string): Promise<string> {
   return file;
 }
 
+export async function writeProjectMemory(workspace: string, content: string): Promise<string> {
+  const normalized = content.replace(/\r\n/g, "\n").trim();
+  if (!normalized) throw new Error("Project memory must not be empty.");
+  const file = memoryPath(workspace);
+  await mkdir(path.dirname(file), { recursive: true });
+  const body = normalized.startsWith("#") ? normalized : `# Jevio Project Memory\n\n${normalized}`;
+  await writeFile(file, `${body.trim()}\n`, "utf8");
+  return file;
+}
+
 export { NEW_SESSION_TITLE };

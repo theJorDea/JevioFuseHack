@@ -41,6 +41,60 @@ export async function discoverLocalProviders(fetcher: Fetcher = fetch): Promise<
   ];
 }
 
+/** Extract model ids from OpenAI-compatible /models JSON (and a few common variants). */
+export function parseModelsPayload(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload as Record<string, unknown>;
+  const fromData = stringsFrom(root.data, "id");
+  if (fromData.length) return fromData;
+  const fromModelsName = stringsFrom(root.models, "name");
+  if (fromModelsName.length) return fromModelsName;
+  const fromModelsId = stringsFrom(root.models, "id");
+  if (fromModelsId.length) return fromModelsId;
+  if (Array.isArray(root)) {
+    return [...new Set(root.flatMap((item) => {
+      if (typeof item === "string" && item.trim()) return [item.trim()];
+      if (item && typeof item === "object") {
+        const record = item as Record<string, unknown>;
+        for (const key of ["id", "name", "model"]) {
+          if (typeof record[key] === "string" && record[key].trim()) return [record[key].trim()];
+        }
+      }
+      return [];
+    }))];
+  }
+  return [];
+}
+
+/**
+ * List models from any OpenAI-compatible provider via GET {baseUrl}/models.
+ * Works for Ollama (/v1), LM Studio, OpenRouter, custom gateways, etc.
+ */
+export async function listProviderModels(
+  baseUrl: string,
+  options: {
+    apiKey?: string;
+    timeoutMs?: number;
+    fetcher?: Fetcher;
+  } = {},
+): Promise<string[]> {
+  const fetcher = options.fetcher ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const url = `${baseUrl.replace(/\/$/, "")}/models`;
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (options.apiKey) headers.authorization = `Bearer ${options.apiKey}`;
+  const response = await fetcher(url, {
+    headers,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) {
+    const status = "status" in response ? String((response as { status?: number }).status ?? "error") : "error";
+    throw new Error(`Models endpoint returned HTTP ${status} for ${url}`);
+  }
+  const models = parseModelsPayload(await response.json());
+  return models.sort((a, b) => a.localeCompare(b));
+}
+
 export function defaultModel(models: string[]): string | undefined {
   return models.find((model) => /(?:coder|code|devstral|deepseek)/i.test(model)) ?? models[0];
 }

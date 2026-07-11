@@ -5,6 +5,14 @@ import { promisify } from "node:util";
 import { loadSkill } from "./skills.ts";
 import { getSymbolIndex, invalidateSymbolIndex, lookupSymbol } from "./symbol-index.ts";
 import type { AskUserOption, ExecutionMode, PluginToolRegistry, RoleName, TodoItem, ToolContext, ToolDefinition } from "./types.ts";
+import { fetchWebPage } from "./web-fetch.ts";
+import { searchWeb } from "./web-search.ts";
+
+export { searchWeb } from "./web-search.ts";
+export { fetchWebPage } from "./web-fetch.ts";
+
+const PLAN_MODE_MUTATING = new Set(["write_file", "replace_in_file"]);
+const EXECUTION_MODES: ExecutionMode[] = ["direct", "orchestrate", "team", "council-plan", "council-review", "plan"];
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -62,16 +70,66 @@ export async function resolveWorkspacePath(workspace: string, requested = "."): 
 }
 
 const definitions: Record<string, ToolDefinition> = {
+  enter_plan_mode: {
+    type: "function",
+    function: {
+      name: "enter_plan_mode",
+      description: "Enter read-only Plan Mode before making edits. Use for non-trivial multi-file work, ambiguous design choices, or when the user asks to plan first. While active, write tools are blocked until submit_plan is approved or exit_plan_mode is called.",
+      parameters: {
+        type: "object",
+        properties: {
+          goal: { type: "string", description: "Short statement of what will be planned" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  exit_plan_mode: {
+    type: "function",
+    function: {
+      name: "exit_plan_mode",
+      description: "Leave Plan Mode without implementing. Use after the user rejects the plan, cancels, or when planning is no longer needed. Does not apply workspace edits.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: { type: "string", description: "Brief reason for leaving plan mode" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  submit_plan: {
+    type: "function",
+    function: {
+      name: "submit_plan",
+      description: "Present a complete implementation plan for user approval while in Plan Mode. On approval, Plan Mode ends and the approved plan is returned for implementation. On revise, stay in Plan Mode and refine. On reject, leave Plan Mode without edits.",
+      parameters: {
+        type: "object",
+        properties: {
+          plan: {
+            type: "string",
+            description: "Full actionable plan: files, steps, risks, verification. Markdown allowed.",
+          },
+        },
+        required: ["plan"],
+        additionalProperties: false,
+      },
+    },
+  },
   suggest_mode: {
     type: "function",
     function: {
       name: "suggest_mode",
-      description: "Suggest a better persistent execution mode to the user. Use at most once when another mode would materially improve cost, speed, or review quality. The switch applies to subsequent tasks.",
+      description: "Switch Fuse execution mode when it would materially help. Prefer this for: council-plan (architecture/multi-module/high-risk design), council-review (independent review/audit), team (feature needing architect+coder+reviewer), plan (design first), direct (tiny edits). Call at most once, early. With apply_now=true the host may restart this task in the new mode.",
       parameters: {
         type: "object",
         properties: {
-          mode: { type: "string", enum: ["direct", "orchestrate", "team", "council-plan", "council-review"] },
+          mode: { type: "string", enum: ["direct", "orchestrate", "team", "council-plan", "council-review", "plan"] },
           reason: { type: "string", description: "One concise user-facing reason for the recommendation" },
+          apply_now: {
+            type: "boolean",
+            description: "If true (default), apply for the current task immediately when the host allows auto-routing. If false, only sticky for later tasks.",
+          },
         },
         required: ["mode", "reason"],
         additionalProperties: false,
@@ -309,14 +367,30 @@ const definitions: Record<string, ToolDefinition> = {
     type: "function",
     function: {
       name: "web_search",
-      description: "Search the public web for timely external information. Use for current facts, official docs, and sources outside the workspace; do not use it for repository files.",
+      description: "Search the public web (DuckDuckGo + fallbacks) for timely external information, official docs, and sources outside the workspace. Scale calls: 1 for a single fact, 3–5 for comparisons/research. Keep queries short (about 1–6 words), start broad then narrow, never repeat near-identical queries. Prefer original docs over forums. After search, use web_fetch on the best 1–2 URLs when you need full page text. Do not use for repository files.",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string" },
-          max_results: { type: "integer", minimum: 1, maximum: 10 },
+          query: { type: "string", description: "Concise search query (product + version + error phrase when useful)" },
+          max_results: { type: "integer", minimum: 1, maximum: 10, description: "Number of results, default 6" },
         },
         required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  web_fetch: {
+    type: "function",
+    function: {
+      name: "web_fetch",
+      description: "Fetch a public http(s) URL and return readable text (HTML stripped). Use after web_search to read official docs or a specific page. Private/local hosts are blocked. Do not use for workspace files — use read_file instead.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Absolute http(s) URL" },
+          max_characters: { type: "integer", minimum: 1000, maximum: 40_000, description: "Max extracted characters, default 14000" },
+        },
+        required: ["url"],
         additionalProperties: false,
       },
     },
@@ -335,24 +409,31 @@ const readTools = [
   "report_progress",
   "update_todo",
   "web_search",
+  "web_fetch",
 ];
+
+const planTools = ["enter_plan_mode", "exit_plan_mode", "submit_plan"];
 
 export function toolsForRole(role: RoleName, plugins?: PluginToolRegistry): ToolDefinition[] {
   const names = role === "compactor"
     ? []
     : role === "orchestrator"
-    ? [...readTools, "suggest_mode", "delegate_agent"]
+    ? [...readTools, ...planTools, "suggest_mode", "delegate_agent"]
     : role === "architect"
-    ? readTools
+    ? [...readTools, ...planTools]
     : role === "judge"
       ? readTools
     : role === "reviewer"
       ? [...readTools, "run_command"]
-      : [...readTools, "write_file", "replace_in_file", "run_command"];
+      : [...readTools, ...planTools, "write_file", "replace_in_file", "run_command"];
   return [
     ...names.map((name) => definitions[name]),
     ...(role === "compactor" ? [] : plugins?.listTools(role) ?? []),
   ];
+}
+
+export function isPlanModeBlocking(name: string, context: ToolContext): boolean {
+  return Boolean(context.planMode?.active && PLAN_MODE_MUTATING.has(name));
 }
 
 async function walkFiles(root: string, maxResults: number): Promise<string[]> {
@@ -381,48 +462,55 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
   return Math.max(min, Math.min(max, value));
 }
 
-function decodeXml(value: string): string {
-  return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}
-
-export async function searchWeb(query: string, maxResults: number): Promise<string> {
-  const response = await fetch(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, {
-    headers: { "user-agent": "JevioFuse/0.1 (+https://github.com/theJorDea/JevioFuseHack)" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error(`Web search returned HTTP ${response.status}.`);
-  const xml = await response.text();
-  const results = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, maxResults).flatMap((match) => {
-    const item = match[1];
-    const title = /<title>([\s\S]*?)<\/title>/.exec(item)?.[1];
-    const link = /<link>([\s\S]*?)<\/link>/.exec(item)?.[1];
-    const description = /<description>([\s\S]*?)<\/description>/.exec(item)?.[1];
-    if (!title || !link) return [];
-    return [`- ${decodeXml(title).trim()}\n  ${decodeXml(link).trim()}${description ? `\n  ${decodeXml(description).replace(/<[^>]+>/g, "").trim()}` : ""}`];
-  });
-  return results.join("\n") || "No web results found.";
-}
-
 export async function executeTool(name: string, input: Record<string, unknown>, context: ToolContext): Promise<string> {
   const outputLimit = context.maxToolOutputCharacters ?? MAX_OUTPUT;
   try {
+    if (isPlanModeBlocking(name, context)) {
+      return "Blocked by Plan Mode: write tools are disabled. Finish with submit_plan (for approval) or exit_plan_mode.";
+    }
     if (context.plugins?.hasTool(name)) {
+      if (context.planMode?.active) {
+        return "Blocked by Plan Mode: MCP plugins are disabled until the plan is approved or plan mode is exited.";
+      }
       return context.plugins.execute(name, input, {
         confirm: context.confirm,
         autoApprovePlugins: context.autoApprovePlugins,
         maxToolOutputCharacters: outputLimit,
       });
     }
+    if (name === "enter_plan_mode") {
+      const goal = String(input.goal ?? "").trim() || undefined;
+      if (!context.enterPlanMode) return "Plan Mode is unavailable in this host.";
+      if (context.planMode?.active) {
+        return `Plan Mode is already active${context.planMode.goal ? ` (goal: ${context.planMode.goal})` : ""}. Use submit_plan or exit_plan_mode.`;
+      }
+      return context.enterPlanMode(goal);
+    }
+    if (name === "exit_plan_mode") {
+      const reason = String(input.reason ?? "").trim() || undefined;
+      if (!context.exitPlanMode) return "Plan Mode is unavailable in this host.";
+      if (!context.planMode?.active) return "Plan Mode is not active.";
+      return context.exitPlanMode(reason);
+    }
+    if (name === "submit_plan") {
+      const plan = String(input.plan ?? "").trim();
+      if (!plan) throw new Error("plan must not be empty");
+      if (!context.submitPlan) return "Plan submission is unavailable in this host.";
+      if (!context.planMode?.active) {
+        // Auto-enter so agents can submit a plan in one step.
+        if (context.enterPlanMode) await context.enterPlanMode("Submitted plan");
+        else return "Plan Mode is not active and cannot be entered in this host.";
+      }
+      return context.submitPlan(plan);
+    }
     if (name === "delegate_agent") {
       if (!context.delegate) throw new Error("Agent delegation is not configured by this host.");
       const role = String(input.role ?? "");
       if (!(["architect", "coder", "reviewer"] as string[]).includes(role)) {
         throw new Error(`Invalid specialist role '${role}'.`);
+      }
+      if (context.planMode?.active && role === "coder") {
+        return "Blocked by Plan Mode: cannot delegate to coder until submit_plan is approved. Use architect for planning help, or submit_plan / exit_plan_mode.";
       }
       const task = String(input.task ?? "").trim();
       if (!task) throw new Error("task must not be empty");
@@ -432,15 +520,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     if (name === "suggest_mode") {
       const mode = String(input.mode ?? "") as ExecutionMode;
       const reason = String(input.reason ?? "").trim();
-      if (!(["direct", "orchestrate", "team", "council-plan", "council-review"] as string[]).includes(mode)) {
+      const applyNow = input.apply_now !== false;
+      if (!EXECUTION_MODES.includes(mode)) {
         throw new Error("Unknown execution mode.");
       }
       if (!reason) throw new Error("reason must not be empty");
       if (!context.suggestMode) return "Mode switching is unavailable in this host.";
-      const accepted = await context.suggestMode(mode, reason);
-      return accepted
-        ? `Mode '${mode}' accepted and will be used for subsequent tasks.`
-        : `Mode '${mode}' was not selected; keep the current mode.`;
+      const accepted = await context.suggestMode(mode, reason, { applyNow });
+      if (!accepted) return `Mode '${mode}' was not selected; keep the current mode and continue.`;
+      return applyNow
+        ? `Mode '${mode}' accepted for this task (${reason}). Stop other work now — the host will re-run the user request in '${mode}'. Do not call more tools.`
+        : `Mode '${mode}' accepted for subsequent tasks (${reason}). Continue the current task in the current mode.`;
     }
 
     if (name === "ask_user") {
@@ -483,7 +573,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     if (name === "web_search") {
       const query = String(input.query ?? "").trim();
       if (!query) throw new Error("query must not be empty");
-      return searchWeb(query, integer(input.max_results, 5, 1, 10));
+      return await searchWeb(query, integer(input.max_results, 6, 1, 10));
+    }
+
+    if (name === "web_fetch") {
+      const url = String(input.url ?? "").trim();
+      if (!url) throw new Error("url must not be empty");
+      return await fetchWebPage(url, {
+        maxCharacters: integer(input.max_characters, 14_000, 1_000, 40_000),
+      });
     }
 
     if (name === "lookup_symbol") {
@@ -573,6 +671,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
     if (name === "run_command") {
       const command = String(input.command ?? "").trim();
       if (!command) throw new Error("command must not be empty");
+      if (context.planMode?.active && shellCommandKind(command) !== "test") {
+        return "Blocked by Plan Mode: only test commands are allowed. Use read tools, submit_plan, or exit_plan_mode.";
+      }
       const shellMode = context.shellMode ?? "full";
       const commandKind = shellCommandKind(command);
       if (!shellAllowed(command, shellMode)) {
