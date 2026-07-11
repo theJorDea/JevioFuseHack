@@ -1,6 +1,6 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CodeIndexConfig, CogneeMemoryConfig, JevioConfig, PartialJevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
+import type { CodeIndexConfig, CogneeMemoryConfig, JevioConfig, McpServerConfig, PartialJevioConfig, ProviderConfig, RoleConfig, RoleName } from "./types.ts";
 
 const DEFAULT_CONFIG: JevioConfig = {
   defaultProvider: "ollama",
@@ -53,9 +53,13 @@ const DEFAULT_CONFIG: JevioConfig = {
       rememberCompactions: true,
     },
   },
+  plugins: {
+    mcp: {},
+  },
   permissions: {
     autoApproveWorkspaceWrites: false,
     autoApproveShell: false,
+    autoApprovePlugins: false,
     shellMode: "tests-only",
   },
 };
@@ -123,6 +127,39 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
       },
     ]),
   ) as Record<string, ProviderConfig>;
+  const configuredMcp = input.plugins?.mcp ?? {};
+  if (!configuredMcp || typeof configuredMcp !== "object" || Array.isArray(configuredMcp)) {
+    throw new Error("plugins.mcp must be an object.");
+  }
+  const mcp = Object.fromEntries(Object.entries(configuredMcp).map(([name, value]) => {
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Invalid MCP server name '${name}'.`);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid MCP server config '${name}'.`);
+    const server = value as Partial<McpServerConfig>;
+    const args = server.args ?? [];
+    const env = server.env ?? {};
+    const roles = server.roles;
+    if (typeof server.command !== "string" || !server.command.trim()) throw new Error(`MCP server '${name}' needs a command.`);
+    if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) throw new Error(`MCP server '${name}' args must be strings.`);
+    if (!env || typeof env !== "object" || Array.isArray(env) || Object.values(env).some((item) => typeof item !== "string")) {
+      throw new Error(`MCP server '${name}' env must contain only strings.`);
+    }
+    if (roles !== undefined && (!Array.isArray(roles) || roles.some((role) => !["orchestrator", "coder", "architect", "reviewer", "judge", "compactor"].includes(role)))) {
+      throw new Error(`MCP server '${name}' roles contain an unknown role.`);
+    }
+    const startupTimeoutMs = server.startupTimeoutMs ?? 10_000;
+    if (!Number.isFinite(startupTimeoutMs) || startupTimeoutMs < 1_000 || startupTimeoutMs > 120_000) {
+      throw new Error(`MCP server '${name}' startupTimeoutMs must be between 1000 and 120000.`);
+    }
+    return [name, {
+      command: server.command.trim(),
+      args: [...args],
+      env: { ...env },
+      cwd: typeof server.cwd === "string" && server.cwd.trim() ? server.cwd : ".",
+      enabled: server.enabled === true,
+      ...(roles ? { roles: [...roles] } : {}),
+      startupTimeoutMs,
+    } satisfies McpServerConfig];
+  }));
   return {
     defaultProvider: input.defaultProvider ?? DEFAULT_CONFIG.defaultProvider,
     providers,
@@ -131,6 +168,7 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
     compaction: { ...DEFAULT_CONFIG.compaction, ...input.compaction },
     codeIndex: { ...DEFAULT_CONFIG.codeIndex, ...input.codeIndex } as CodeIndexConfig,
     memory: { cognee },
+    plugins: { mcp: mcp as Record<string, McpServerConfig> },
     permissions: { ...DEFAULT_CONFIG.permissions, ...input.permissions, shellMode },
   };
 }

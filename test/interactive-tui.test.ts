@@ -40,6 +40,7 @@ function createTui(): InteractiveTui {
     selectProvider: async () => "",
     addProvider: async () => "",
     listRoleConfigs: async () => [],
+    listPlugins: async () => "MCP-плагины не настроены.",
     configureRole: async () => "",
     setupReport: async () => "",
   });
@@ -52,6 +53,7 @@ type TuiInternals = {
       getSelectedItem?(): { value: string } | null;
     };
     overlayStack: Array<{ component: { render(width: number): string[] } }>;
+    handleInput(input: string): void;
     hasOverlay(): boolean;
     stop(): void;
   };
@@ -84,10 +86,16 @@ test("long change previews keep approval choices visible and gate writes", async
     content: Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n") + "\n",
   }, context);
   await nextTurn();
-  const visible = state.tui.overlayStack[0].component.render(48).slice(0, 14).join("\n");
-  assert.match(visible, /preview сокращён/);
+  const visible = state.tui.overlayStack[0].component.render(48).join("\n");
+  assert.match(visible, /\+ line 1/);
+  assert.match(visible, /Diff:/);
+  assert.match(visible, /Jevio/);
   assert.match(visible, /Разрешить/);
   assert.match(visible, /Отклонить/);
+  state.tui.handleInput("\u001b[6~");
+  state.tui.handleInput("\u001b[6~");
+  const nextPage = state.tui.overlayStack[0].component.render(48).join("\n");
+  assert.match(nextPage, /\+ line 20/);
   state.tui.focusedComponent.handleInput("\n");
   assert.match(await write, /^Wrote /);
 

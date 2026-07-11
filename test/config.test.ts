@@ -36,6 +36,32 @@ test("loads partial config, expands environment, and fills role defaults", async
   assert.equal(config.memory.cognee.baseUrl, "http://localhost:8000");
 });
 
+test("loads disabled MCP plugin configs without enabling plugin approvals", async (t) => {
+  const workspace = path.join(tmpdir(), `.tmp-test-config-mcp-${process.pid}-${Date.now()}`);
+  await mkdir(workspace, { recursive: true });
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  process.env.JEVIO_MCP_TOKEN = "plugin-secret";
+  t.after(() => delete process.env.JEVIO_MCP_TOKEN);
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    plugins: {
+      mcp: {
+        github: {
+          command: "node",
+          args: ["server.mjs"],
+          env: { GITHUB_TOKEN: "${JEVIO_MCP_TOKEN}" },
+          roles: ["coder", "reviewer"],
+        },
+      },
+    },
+  }));
+
+  const config = await loadConfig(workspace);
+  assert.equal(config.plugins.mcp.github.enabled, false);
+  assert.equal(config.plugins.mcp.github.env.GITHUB_TOKEN, "plugin-secret");
+  assert.deepEqual(config.plugins.mcp.github.roles, ["coder", "reviewer"]);
+  assert.equal(config.permissions.autoApprovePlugins, false);
+});
+
 test("rejects invalid role sampling limits", async (t) => {
   const workspace = path.join(tmpdir(), `.tmp-test-config-invalid-${process.pid}-${Date.now()}`);
   t.after(() => rm(workspace, { recursive: true, force: true }));

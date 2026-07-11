@@ -48,4 +48,5 @@ Local
   assert.equal(review?.description, "Portable review skill");
   assert.equal(review?.modelInvocable, true);
   assert.ok(skills.some((skill) => skill.name === "make-interfaces-feel-better"));
+  assert.ok(skills.some((skill) => skill.name === "frontend-interface"));
 });

@@ -48,6 +48,7 @@ export interface InteractiveTuiOptions {
   selectProvider(name: string): Promise<string>;
   addProvider(provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses"; toolMode?: "auto" | "native" | "text" }): Promise<string>;
   listRoleConfigs(): Promise<Array<{ role: string; provider: string; model: string }>>;
+  listPlugins(): Promise<string>;
   configureRole(role: string, provider: string, model: string): Promise<string>;
   setupReport(): Promise<string>;
 }
@@ -100,24 +101,6 @@ function modalSurface(): Box {
   return new Box(1, 1, modalBackground);
 }
 
-function compactApprovalPreview(message: string): string {
-  const lines = message.split(/\r?\n/);
-  const shorten = (line: string): string => line.length > 40 ? `${line.slice(0, 39)}…` : line;
-  if (lines.length <= 8 && lines.every((line) => line.length <= 40)) return message;
-
-  const prompt = [...lines].reverse().find((line) => line.trim()) ?? "";
-  const context = lines.slice(0, 3);
-  const oldExample = lines.find((line) => /^- /.test(line));
-  const newExample = lines.find((line) => /^\+ /.test(line));
-  const examples = [oldExample, newExample].filter((line): line is string => Boolean(line));
-  return [
-    ...context,
-    ...examples,
-    "… preview сокращён; подтверждение применит полный diff …",
-    prompt,
-  ].map(shorten).join("\n");
-}
-
 const selectTheme: SelectListTheme = {
   selectedPrefix: boldCyan,
   selectedText: boldCyan,
@@ -158,6 +141,48 @@ class RightAlignedText implements Component {
   }
 }
 
+class ScrollableText implements Component {
+  private readonly text: Text;
+  private readonly maxVisibleLines: number;
+  private offset = 0;
+  private renderedLineCount = 0;
+
+  constructor(content: string, maxVisibleLines: number) {
+    this.maxVisibleLines = maxVisibleLines;
+    this.text = new Text(content, 1, 0);
+  }
+
+  invalidate(): void {
+    this.text.invalidate();
+  }
+
+  render(width: number): string[] {
+    const lines = this.text.render(width);
+    this.renderedLineCount = lines.length;
+    this.offset = Math.min(this.offset, this.maxOffset());
+    return lines.slice(this.offset, this.offset + this.maxVisibleLines);
+  }
+
+  scrollPage(direction: -1 | 1, width: number): void {
+    const lines = this.text.render(width);
+    this.renderedLineCount = lines.length;
+    const step = Math.max(1, this.maxVisibleLines - 2);
+    this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset + direction * step));
+  }
+
+  pageInfo(width: number): string {
+    const lines = this.text.render(width);
+    this.renderedLineCount = lines.length;
+    const totalPages = Math.max(1, Math.ceil(lines.length / this.maxVisibleLines));
+    const currentPage = Math.min(totalPages, Math.floor(this.offset / this.maxVisibleLines) + 1);
+    return `Diff: страница ${currentPage}/${totalPages} · PageUp/PageDown или Ctrl+U/Ctrl+D — прокрутка`;
+  }
+
+  private maxOffset(): number {
+    return Math.max(0, this.renderedLineCount - this.maxVisibleLines);
+  }
+}
+
 export class InteractiveTui {
   private readonly options: InteractiveTuiOptions;
   private readonly tui: TUI;
@@ -174,6 +199,7 @@ export class InteractiveTui {
   private resolveExit?: () => void;
   private stopped = false;
   private dismissOverlay?: () => void;
+  private activeApprovalPreview?: { preview: ScrollableText; status: Text };
   private liveThinking?: { role: string; text: string; component: Text; heading: Text; expanded: boolean };
 
   constructor(options: InteractiveTuiOptions) {
@@ -220,6 +246,15 @@ export class InteractiveTui {
       if (data === "\x0b" && !this.busy) {
         void this.showCommandPalette();
         return { consume: true };
+      }
+      if (this.activeApprovalPreview) {
+        const direction = data === "\x1b[5~" || data === "\x15" ? -1 : data === "\x1b[6~" || data === "\x04" ? 1 : undefined;
+        if (direction) {
+          this.activeApprovalPreview.preview.scrollPage(direction, this.tui.terminal.columns);
+          this.activeApprovalPreview.status.setText(dim(this.activeApprovalPreview.preview.pageInfo(this.tui.terminal.columns)));
+          this.tui.requestRender();
+          return { consume: true };
+        }
       }
       if (data === "\x1b" && this.dismissOverlay) {
         this.dismissOverlay();
@@ -281,7 +316,12 @@ export class InteractiveTui {
       this.loader.setMessage("Жду подтверждения...");
       this.setStatus("Жду подтверждения", yellow);
       const overlay = modalSurface();
-      overlay.addChild(new Text(yellow(`${compactApprovalPreview(message)}\n\n`), 1, 0));
+      const overlayHeight = Math.max(10, Math.min(20, this.tui.terminal.rows - 4));
+      const preview = new ScrollableText(yellow(message), Math.max(3, overlayHeight - 7));
+      const previewStatus = new Text(dim(preview.pageInfo(this.tui.terminal.columns)), 1, 0);
+      this.activeApprovalPreview = { preview, status: previewStatus };
+      overlay.addChild(preview);
+      overlay.addChild(previewStatus);
       const choices = new SelectList([
         { value: "yes", label: "Разрешить", description: "Разрешить операцию" },
         { value: "no", label: "Отклонить", description: "Оставить текущее состояние" },
@@ -289,6 +329,7 @@ export class InteractiveTui {
       overlay.addChild(choices);
       const close = (answer: boolean) => {
         handle.hide();
+        this.activeApprovalPreview = undefined;
         this.dismissOverlay = undefined;
         this.tui.setFocus(this.editor);
         this.loader.setMessage("Размышляю...");
@@ -297,7 +338,7 @@ export class InteractiveTui {
       };
       choices.onSelect = (choice) => close(choice.value === "yes");
       choices.onCancel = () => close(false);
-      const handle = this.tui.showOverlay(overlay, { width: "60%", minWidth: 44, maxHeight: 14, anchor: "center", margin: 2 });
+      const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 56, maxHeight: overlayHeight, anchor: "center", margin: 2 });
       this.dismissOverlay = () => close(false);
       this.tui.setFocus(choices);
     });
@@ -432,7 +473,7 @@ export class InteractiveTui {
       this.tui.requestRender();
       return;
     }
-    if (/^\/(?:sessions?|resume|provider|setup|roles)(?:\s*)$/i.test(value)) {
+    if (/^\/(?:sessions?|resume|provider|setup|roles|plugins)(?:\s*)$/i.test(value)) {
       this.editor.addToHistory(input);
       this.editor.setText("");
       try {
@@ -441,6 +482,7 @@ export class InteractiveTui {
           await this.showProviderPicker();
         } else if (/^\/provider\s*$/i.test(value)) await this.showProviderPicker();
         else if (/^\/roles\s*$/i.test(value)) await this.showRolePicker();
+        else if (/^\/plugins\s*$/i.test(value)) this.appendMessage("system", await this.options.listPlugins());
         else await this.showSessionPicker();
       } catch (error) {
         this.appendMessage("error", getErrorMessage(error));

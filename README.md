@@ -5,7 +5,7 @@
   <p>
     <a href="https://nodejs.org/"><img alt="Node.js 22.19+" src="https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?logo=nodedotjs&amp;logoColor=white"></a>
     <a href="https://www.cognee.ai/"><img alt="Память Cognee" src="https://img.shields.io/badge/memory-Cognee-6C63FF"></a>
-    <a href="#тестирование"><img alt="76 пройденных тестов" src="https://img.shields.io/badge/tests-76%20passing-22A06B"></a>
+    <a href="#тестирование"><img alt="78 пройденных тестов" src="https://img.shields.io/badge/tests-78%20passing-22A06B"></a>
     <a href="LICENSE"><img alt="Лицензия MIT" src="https://img.shields.io/badge/license-MIT-111111"></a>
   </p>
   <p><strong>Локальные и облачные модели · долговременная память · мультиагентное ревью · читаемые сессии</strong></p>
@@ -493,6 +493,7 @@ src/session.ts               Хранение Markdown-сессий
 src/compaction.ts            Компактизация длинного контекста
 src/symbol-index.ts          Карта репозитория и поиск символов
 src/tools.ts                 Инструменты workspace и система разрешений
+src/mcp.ts                   MCP stdio plugin manager
 src/provider/                Адаптеры transports моделей
 src/default-skills/          Встроенные Agent Skills
 test/                        Unit- и Cloud integration-тесты
@@ -501,6 +502,35 @@ docs/architecture.md         Архитектура и инварианты
 
 Подробности: [docs/architecture.md](docs/architecture.md).
 
+## MCP plugins
+
+Jevio can expose tools from configured MCP servers over the stdio transport.
+Servers are disabled by default, their tools are namespaced as
+`mcp_<server>_<tool>`, and every call requires a separate approval unless
+`permissions.autoApprovePlugins` is explicitly enabled.
+
+```json
+{
+  "plugins": {
+    "mcp": {
+      "github": {
+        "enabled": true,
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" },
+        "roles": ["coder", "reviewer"],
+        "startupTimeoutMs": 10000
+      }
+    }
+  }
+}
+```
+
+Use `node src/cli.ts plugins` or `/plugins` to inspect plugin status. MCP
+servers are external programs: enable only configurations you trust, keep
+secrets in environment variables, and leave `autoApprovePlugins` disabled
+unless the server and its side effects are understood.
+
 ## План развития
 
 Подробный [аудит Cognee и исследование интеграций](docs/research-and-integrations.md)
@@ -508,7 +538,7 @@ docs/architecture.md         Архитектура и инварианты
 
 - Обратная связь по retrieval и оценка качества памяти.
 - Benchmark для решений, workflows и устаревшей памяти.
-- MCP-клиент и динамические схемы инструментов.
+- MCP HTTP/resources/prompts и расширенные plugin capabilities.
 - Реестр возможностей провайдеров: vision, reasoning и размер контекста.
 - Интеграция с редакторами через ACP.
 - Точный учёт контекста с tokenizer выбранной модели.

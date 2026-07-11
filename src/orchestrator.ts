@@ -263,6 +263,7 @@ export async function runCouncilReview(options: TeamOptions): Promise<CouncilRev
     ...options.toolContext,
     autoApproveWrites: false,
     autoApproveShell: false,
+    autoApprovePlugins: false,
     confirm: async () => false,
   };
   const reviewerResults = await mapWithConcurrency(

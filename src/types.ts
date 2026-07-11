@@ -13,6 +13,20 @@ export interface ProviderConfig {
   headers?: Record<string, string>;
 }
 
+export interface McpServerConfig {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd: string;
+  enabled: boolean;
+  roles?: RoleName[];
+  startupTimeoutMs: number;
+}
+
+export interface PluginConfig {
+  mcp: Record<string, McpServerConfig>;
+}
+
 export interface RoleConfig {
   provider?: string;
   model: string;
@@ -53,6 +67,7 @@ export type PartialJevioConfig = {
   compaction?: Partial<JevioConfig["compaction"]>;
   codeIndex?: Partial<CodeIndexConfig>;
   memory?: { cognee?: Partial<CogneeMemoryConfig> };
+  plugins?: { mcp?: Record<string, Partial<McpServerConfig>> };
   permissions?: Partial<JevioConfig["permissions"]>;
 };
 
@@ -80,9 +95,11 @@ export interface JevioConfig {
   memory: {
     cognee: CogneeMemoryConfig;
   };
+  plugins: PluginConfig;
   permissions: {
     autoApproveWorkspaceWrites: boolean;
     autoApproveShell: boolean;
+    autoApprovePlugins: boolean;
     shellMode: "off" | "tests-only" | "package-manager" | "full";
   };
 }
@@ -108,6 +125,20 @@ export interface ToolDefinition {
     description: string;
     parameters: JsonSchema;
   };
+}
+
+export interface PluginExecutionContext {
+  confirm(message: string): Promise<boolean>;
+  autoApprovePlugins: boolean;
+  maxToolOutputCharacters?: number;
+}
+
+export interface PluginToolRegistry {
+  listTools(role: RoleName): ToolDefinition[];
+  hasTool(name: string): boolean;
+  execute(name: string, input: Record<string, unknown>, context: PluginExecutionContext): Promise<string>;
+  statusText(): string;
+  close(): Promise<void>;
 }
 
 export interface ToolCall {
@@ -177,6 +208,7 @@ export interface ToolContext {
   projectCodeMap?: string;
   autoApproveWrites: boolean;
   autoApproveShell: boolean;
+  autoApprovePlugins: boolean;
   shellMode?: "off" | "tests-only" | "package-manager" | "full";
   maxToolOutputCharacters?: number;
   codeIndex?: CodeIndexConfig;
@@ -187,6 +219,7 @@ export interface ToolContext {
   onWorkspaceChange?: () => void;
   delegate?: (role: SpecialistRoleName, task: string) => Promise<string>;
   suggestMode?: (mode: ExecutionMode, reason: string) => Promise<boolean>;
+  plugins?: PluginToolRegistry;
 }
 
 export interface AskUserOption {

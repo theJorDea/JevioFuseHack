@@ -76,9 +76,23 @@
       "rememberCompactions": true
     }
   },
+  "plugins": {
+    "mcp": {
+      "example": {
+        "enabled": false,
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-everything"],
+        "env": {},
+        "cwd": ".",
+        "roles": ["coder", "reviewer"],
+        "startupTimeoutMs": 10000
+      }
+    }
+  },
   "permissions": {
     "autoApproveWorkspaceWrites": false,
     "autoApproveShell": false,
+    "autoApprovePlugins": false,
     "shellMode": "tests-only"
   }
 }

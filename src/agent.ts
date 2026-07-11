@@ -46,7 +46,8 @@ their descriptions match the task. Run proportionate tests or checks after editi
 or edit succeeded unless its tool result confirms it. For requests that create or modify artifacts, use write
 tools to make the changes; do not return code for the user to copy instead. Do not return a plan, progress
 update, or a claim that implementation has started as the final answer: when the request requires files,
-your final answer is valid only after a successful write tool result. If a retry explicitly reports that native
+your final answer is valid only after a successful write tool result. For web or interface work, inspect the
+frontend stack and load the frontend-interface skill before writing when it is available. If a retry explicitly reports that native
 tool calls were not detected, return only a JSON object named jevio_tool_calls in the requested fallback
 format; never mix that object with Markdown. Finish with a concise summary and verification.`,
   reviewer: `You are the review agent. Inspect the actual diff and relevant surrounding code. Prioritize
@@ -200,7 +201,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     },
   };
   const userMessage: ChatMessage = { role: "user", content: options.task };
-  const tools = toolsForRole(options.role);
+  const tools = toolsForRole(options.role, toolContext.plugins);
   const usesTextTools = toolMode === "text" && tools.length > 0;
   const allowedToolNames = tools.map((tool) => tool.function.name).join(", ");
   const textToolInstructions = options.role === "coder"

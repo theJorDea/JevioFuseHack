@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { loadSkill } from "./skills.ts";
 import { getSymbolIndex, invalidateSymbolIndex, lookupSymbol } from "./symbol-index.ts";
-import type { AskUserOption, ExecutionMode, RoleName, TodoItem, ToolContext, ToolDefinition } from "./types.ts";
+import type { AskUserOption, ExecutionMode, PluginToolRegistry, RoleName, TodoItem, ToolContext, ToolDefinition } from "./types.ts";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -337,7 +337,7 @@ const readTools = [
   "web_search",
 ];
 
-export function toolsForRole(role: RoleName): ToolDefinition[] {
+export function toolsForRole(role: RoleName, plugins?: PluginToolRegistry): ToolDefinition[] {
   const names = role === "compactor"
     ? []
     : role === "orchestrator"
@@ -349,7 +349,10 @@ export function toolsForRole(role: RoleName): ToolDefinition[] {
     : role === "reviewer"
       ? [...readTools, "run_command"]
       : [...readTools, "write_file", "replace_in_file", "run_command"];
-  return names.map((name) => definitions[name]);
+  return [
+    ...names.map((name) => definitions[name]),
+    ...(role === "compactor" ? [] : plugins?.listTools(role) ?? []),
+  ];
 }
 
 async function walkFiles(root: string, maxResults: number): Promise<string[]> {
@@ -408,6 +411,13 @@ export async function searchWeb(query: string, maxResults: number): Promise<stri
 export async function executeTool(name: string, input: Record<string, unknown>, context: ToolContext): Promise<string> {
   const outputLimit = context.maxToolOutputCharacters ?? MAX_OUTPUT;
   try {
+    if (context.plugins?.hasTool(name)) {
+      return context.plugins.execute(name, input, {
+        confirm: context.confirm,
+        autoApprovePlugins: context.autoApprovePlugins,
+        maxToolOutputCharacters: outputLimit,
+      });
+    }
     if (name === "delegate_agent") {
       if (!context.delegate) throw new Error("Agent delegation is not configured by this host.");
       const role = String(input.role ?? "");

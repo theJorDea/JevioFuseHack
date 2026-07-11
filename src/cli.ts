@@ -40,12 +40,13 @@ import {
 import { discoverSkills } from "./skills.ts";
 import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol-index.ts";
 import { InteractiveTui } from "./interactive-tui.ts";
+import { McpPluginManager } from "./mcp.ts";
 import { isImplementationRequest } from "./task-intent.ts";
 import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "./setup.ts";
 import type { ChatMessage, ExecutionMode, RoleName, ToolContext } from "./types.ts";
 
 interface CliOptions {
-  command: "run" | "init" | "setup" | "doctor" | "skills" | "review" | "fix-review" | "help";
+  command: "run" | "init" | "setup" | "doctor" | "skills" | "plugins" | "review" | "fix-review" | "help";
   task: string;
   workspace: string;
   configPath?: string;
@@ -67,6 +68,7 @@ Usage:
   jevio setup                  Настроить локального провайдера в интерактивном режиме
   jevio doctor                 Проверить конфигурацию и endpoints моделей
   jevio skills                 Показать найденные skills проекта
+  jevio plugins               Показать MCP-плагины и доступные инструменты
   jevio fix-review             Исправить подтвержденные findings последнего Council Review
 
 Options:
@@ -77,7 +79,7 @@ Options:
   --council-plan               3 architect -> judge -> coder -> reviewer
   --council-review             3 reviewer по рискам -> judge
   --direct                     Работать напрямую через coder без оркестрации
-  --yes, -y                    Автоматически разрешать записи и shell-команды
+  --yes, -y                    Автоматически разрешать записи, shell и MCP-плагины
   --workspace, -w <path>       Папка проекта (по умолчанию текущая)
   --config, -C <path>          Явный файл конфигурации
   --help, -h                   Показать эту справку
@@ -96,6 +98,7 @@ const INTERACTIVE_HELP = `Команды сессии:
   /provider [name]             Показать или сменить провайдера для сессии
   /roles                       Назначить отдельные провайдеры и модели ролям
   /skills                      Показать встроенные и проектные skills
+  /plugins                     Показать MCP-плагины и доступные инструменты
   /fix-review                  Исправить findings последнего Council Review
   /team                        Использовать architect -> coder -> reviewer для следующих задач
   /council-plan                Совет архитекторов, затем coder и reviewer
@@ -128,7 +131,7 @@ function parseArgs(argv: string[]): CliOptions {
   const taskParts: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (index === 0 && ["init", "setup", "doctor", "skills", "review", "fix-review"].includes(argument)) {
+    if (index === 0 && ["init", "setup", "doctor", "skills", "plugins", "review", "fix-review"].includes(argument)) {
       options.command = argument as CliOptions["command"];
     } else if (argument === "--help" || argument === "-h") {
       options.command = "help";
@@ -429,6 +432,16 @@ async function main(): Promise<void> {
     for (const skill of skills) console.log(`${skill.name}\t${skill.description}`);
     return;
   }
+  if (options.command === "plugins") {
+    const config = await loadConfig(options.workspace, options.configPath);
+    const plugins = await McpPluginManager.create(options.workspace, config);
+    try {
+      console.log(plugins.statusText());
+    } finally {
+      await plugins.close();
+    }
+    return;
+  }
 
   const terminal = process.stdin.isTTY
     ? createInterface({ input: process.stdin, output: process.stdout })
@@ -441,6 +454,9 @@ async function main(): Promise<void> {
     return /^(y|yes)$/i.test(answer.trim());
   };
   const { config, context } = await makeContext(options, confirm);
+  const mcpPlugins = await McpPluginManager.create(options.workspace, config);
+  context.plugins = mcpPlugins;
+  context.autoApprovePlugins = options.yes || config.permissions.autoApprovePlugins;
   const cogneeMemory = new CogneeMemory(config.memory.cognee, options.workspace);
   context.askUser = async (question, choices) => {
     if (tui) return tui.askUser(question, choices);
@@ -587,6 +603,7 @@ async function main(): Promise<void> {
       ] : []),
       `[x] Конфигурация: ${options.configPath ?? path.join(options.workspace, "jevio.config.json")}`,
       `[x] Настроенные провайдеры: ${Object.keys(config.providers).join(", ")}`,
+      `\nMCP-плагины:\n${mcpPlugins.statusText()}`,
       "\nВыберите провайдер или добавьте новый в следующем окне.",
     ];
     return lines.join("\n");
@@ -600,6 +617,7 @@ async function main(): Promise<void> {
           console.log(`\nЧтобы продолжить сессию: node src/cli.ts -r ${active.info.id}`);
         }
         terminal?.close();
+        await mcpPlugins.close();
       })();
     }
     return finalization;
@@ -833,6 +851,7 @@ async function main(): Promise<void> {
           : "Skills не найдены.",
       };
     }
+    if (command === "/plugins") return { output: mcpPlugins.statusText() };
     if (command === "/fix-review") return { output: await fixLatestCouncilReview() };
     if (command === "/team") {
       mode = "team";
@@ -1006,6 +1025,7 @@ async function main(): Promise<void> {
           provider: settings.provider ?? config.defaultProvider,
           model: settings.model,
         })),
+        listPlugins: async () => mcpPlugins.statusText(),
         configureRole,
         setupReport,
       });
