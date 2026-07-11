@@ -574,10 +574,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const command = String(input.command ?? "").trim();
       if (!command) throw new Error("command must not be empty");
       const shellMode = context.shellMode ?? "full";
+      const commandKind = shellCommandKind(command);
       if (!shellAllowed(command, shellMode)) {
         return `Command blocked by shellMode '${shellMode}'.`;
       }
-      const requiresExplicitApproval = shellMode === "package-manager" && shellCommandKind(command) === "package";
+      const requiresExplicitApproval = shellMode === "package-manager" && commandKind === "package";
       const approved = !requiresExplicitApproval && context.autoApproveShell || await context.confirm(`Разрешить shell-команду (${shellMode})?\n  ${command}`);
       if (!approved) return "Permission denied by user.";
       const timeout = integer(input.timeout_ms, 120_000, 1000, 600_000);
@@ -588,9 +589,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           maxBuffer: MAX_OUTPUT * 2,
           windowsHide: true,
         });
+        if (commandKind === "test") {
+          context.recordVerification?.({
+            command,
+            exitCode: 0,
+            summary: clip(`${result.stdout}${result.stderr}`.trim() || "Command completed without output.", 1_000),
+          });
+        }
         return clip(`exit: 0\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`, outputLimit);
       } catch (error) {
         const failed = error as Error & { code?: number; stdout?: string; stderr?: string };
+        if (commandKind === "test") {
+          context.recordVerification?.({
+            command,
+            exitCode: failed.code ?? "failed",
+            summary: clip(`${failed.stdout ?? ""}${failed.stderr ?? failed.message}`.trim(), 1_000),
+          });
+        }
         return clip(`exit: ${failed.code ?? "failed"}\nstdout:\n${failed.stdout ?? ""}\nstderr:\n${failed.stderr ?? failed.message}`, outputLimit);
       }
     }

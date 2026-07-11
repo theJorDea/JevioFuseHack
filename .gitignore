@@ -4,6 +4,7 @@ node_modules/
 .jevio/cache/
 .jevio/sessions/
 .jevio/MEMORY.md
+.jevio/memory-log.jsonl
 .jevio/providers.json
 coverage/
 .tmp-test-*/

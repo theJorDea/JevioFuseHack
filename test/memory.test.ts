@@ -220,4 +220,16 @@ test("Cognee status reports dataset pipeline readiness when supported", async ()
 
 test("completed turn memory contains the request and result", () => {
   assert.match(completedTurnMemory("Fix it", "Done"), /Fix it[\s\S]*Done/);
+  const documented = completedTurnMemory("Fix it", "Done", {
+    id: "record-1",
+    kind: "completed_task",
+    createdAt: "2026-07-11T00:00:00.000Z",
+    sessionId: "session-1",
+    request: "Fix it",
+    result: "Done",
+    repositoryHead: "abc123",
+    workingTreeFiles: ["src/memory.ts"],
+    verifications: [{ command: "npm test", exitCode: 0, summary: "passed" }],
+  });
+  assert.match(documented, /record-1[\s\S]*abc123[\s\S]*src\/memory\.ts[\s\S]*npm test/);
 });

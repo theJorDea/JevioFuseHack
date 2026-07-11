@@ -54,6 +54,7 @@ test("write tools require approval and exact replacement", async (t) => {
 
 test("shell mode blocks commands outside its policy", async (t) => {
   const root = await workspace(t);
+  const verifications: Array<{ command: string; exitCode: number | string; summary: string }> = [];
   const context: ToolContext = {
     workspace: root,
     skills: [],
@@ -61,9 +62,13 @@ test("shell mode blocks commands outside its policy", async (t) => {
     autoApproveShell: true,
     shellMode: "tests-only",
     confirm: async () => true,
+    recordVerification: (record) => { verifications.push(record); },
   };
   assert.equal(await executeTool("run_command", { command: "npm install" }, context), "Command blocked by shellMode 'tests-only'.");
   assert.match(await executeTool("run_command", { command: "node --test" }, context), /exit: 0/);
+  assert.equal(verifications.length, 1);
+  assert.equal(verifications[0].command, "node --test");
+  assert.equal(verifications[0].exitCode, 0);
   assert.equal(await executeTool("run_command", { command: "npm install" }, { ...context, shellMode: "package-manager", confirm: async () => false }), "Permission denied by user.");
 });
 

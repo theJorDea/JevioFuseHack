@@ -24,7 +24,7 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { name: "council-review", description: "Запустить совет ревьюеров текущих изменений" },
   { name: "direct", description: "Работать напрямую через coder" },
   { name: "orchestrate", description: "Вернуться в режим оркестрации" },
-  { name: "memory", description: "Просмотреть или изменить память проекта", argumentHint: "[add|clear]" },
+  { name: "memory", description: "Просмотреть или изменить память проекта", argumentHint: "[add|status|explain|sync|improve|clear]" },
   { name: "exit", description: "Выйти из Fuse" },
 ];
 

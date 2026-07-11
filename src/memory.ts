@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { CogneeMemoryConfig } from "./types.ts";
+import type { MemoryProvenanceRecord } from "./memory-journal.ts";
 
 type Fetcher = typeof fetch;
 
@@ -257,6 +258,21 @@ export class CogneeMemory {
   }
 }
 
-export function completedTurnMemory(task: string, answer: string): string {
-  return `# Completed Jevio task\n\n## User request\n\n${task.trim()}\n\n## Result\n\n${answer.trim()}`;
+function inlineMetadata(value: string): string {
+  return value.replace(/[\r\n`]+/g, " ").trim();
+}
+
+export function completedTurnMemory(task: string, answer: string, provenance?: MemoryProvenanceRecord): string {
+  const metadata = provenance ? [
+    "## Provenance",
+    "",
+    `- Record: \`${inlineMetadata(provenance.id)}\``,
+    `- Created: \`${inlineMetadata(provenance.createdAt)}\``,
+    `- Session: \`${inlineMetadata(provenance.sessionId)}\``,
+    `- Repository HEAD: ${provenance.repositoryHead ? `\`${inlineMetadata(provenance.repositoryHead)}\`` : "unavailable"}`,
+    `- Working tree files: ${provenance.workingTreeFiles.length ? provenance.workingTreeFiles.map((file) => `\`${inlineMetadata(file)}\``).join(", ") : "none"}`,
+    `- Verification: ${provenance.verifications.length ? provenance.verifications.map((item) => `\`${inlineMetadata(item.command)}\` (exit ${item.exitCode})`).join("; ") : "not recorded"}`,
+    "",
+  ].join("\n") : "";
+  return `# Completed Jevio task\n\n${metadata}## User request\n\n${task.trim()}\n\n## Result\n\n${answer.trim()}`;
 }

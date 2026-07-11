@@ -15,6 +15,12 @@ import {
 } from "./compaction.ts";
 import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "./config.ts";
 import { CogneeMemory, completedTurnMemory } from "./memory.ts";
+import {
+  appendMemoryProvenance,
+  clearMemoryProvenance,
+  formatMemoryExplanation,
+  listMemoryProvenance,
+} from "./memory-journal.ts";
 import { runCouncilPlan, runCouncilReview, runTeam } from "./orchestrator.ts";
 import { createPlanDocument, writePlanDocument, type PlanDocument } from "./plan.ts";
 import {
@@ -43,7 +49,7 @@ import { InteractiveTui } from "./interactive-tui.ts";
 import { McpPluginManager } from "./mcp.ts";
 import { isImplementationRequest } from "./task-intent.ts";
 import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "./setup.ts";
-import type { ChatMessage, ExecutionMode, RoleName, ToolContext } from "./types.ts";
+import type { ChatMessage, ExecutionMode, RoleName, ToolContext, VerificationRecord } from "./types.ts";
 
 interface CliOptions {
   command: "run" | "init" | "setup" | "doctor" | "skills" | "plugins" | "review" | "fix-review" | "help";
@@ -108,6 +114,7 @@ const INTERACTIVE_HELP = `Команды сессии:
   /memory                      Показать память проекта
   /memory add <text>           Добавить запись в память проекта
   /memory status               Проверить подключение Cognee
+  /memory explain              Показать последний recall и provenance памяти
   /memory sync                 Синхронизировать MEMORY.md с Cognee
   /memory improve              Обогатить граф памяти Cognee
   /memory clear                Очистить память проекта
@@ -485,6 +492,10 @@ async function main(): Promise<void> {
 
   let active = await initialSession(options, terminal);
   let history = active.history;
+  let turnVerifications: VerificationRecord[] = [];
+  context.recordVerification = (record) => {
+    turnVerifications.push(record);
+  };
   const rememberCognee = async (content: string, filename: string, sessionAware = true): Promise<string | undefined> => {
     if (!cogneeMemory.enabled) return undefined;
     try {
@@ -496,10 +507,30 @@ async function main(): Promise<void> {
       return warning;
     }
   };
+  const recordMemoryProvenance = async (
+    kind: "completed_task" | "explicit_memory",
+    request: string,
+    result: string,
+    verifications: VerificationRecord[],
+  ) => {
+    try {
+      return await appendMemoryProvenance(options.workspace, {
+        kind,
+        sessionId: active.info.id,
+        request,
+        result,
+        verifications,
+      });
+    } catch (error) {
+      reportEvent({ type: "thinking", role: "orchestrator", detail: `Memory provenance skipped: ${(error as Error).message}` });
+      return undefined;
+    }
+  };
   const recordSuccessfulTurn = async (task: string, content: string): Promise<void> => {
     await appendSessionTurn(active.info, task, content);
+    const provenance = await recordMemoryProvenance("completed_task", task, content, turnVerifications);
     if (config.memory.cognee.rememberCompletedTurns) {
-      await rememberCognee(completedTurnMemory(task, content), `turn-${active.info.messageCount}.md`);
+      await rememberCognee(completedTurnMemory(task, content, provenance), `turn-${active.info.messageCount}.md`);
     }
   };
   let workspaceMutationCount = 0;
@@ -647,6 +678,7 @@ async function main(): Promise<void> {
     return `Context compacted: ~${beforeTokens} -> ~${estimateHistoryTokens(history)} tokens; ${compacted.retainedMessages.length} recent messages retained.`;
   };
   const executeTask = async (task: string): Promise<string> => {
+    turnVerifications = [];
     modeSuggestionUsed = false;
     context.retrievedMemory = undefined;
     if (cogneeMemory.enabled) {
@@ -825,6 +857,7 @@ async function main(): Promise<void> {
     }
   };
   const fixLatestCouncilReview = async (): Promise<string> => {
+    turnVerifications = [];
     const review = await loadLatestCouncilReview(active.info);
     if (!review) throw new Error("В текущей сессии нет Council Review. Сначала запустите jevio review --council.");
     const task = `Исправь только подтвержденные judge findings из Council Review ниже. Не меняй несвязанный код. После исправлений запусти релевантные проверки и кратко перечисли их результаты.\n\n${review}`;
@@ -928,6 +961,10 @@ async function main(): Promise<void> {
       }
     }
     if (command === "/memory") {
+      if (parts[0] === "explain") {
+        const records = await listMemoryProvenance(options.workspace, 5);
+        return { output: formatMemoryExplanation(records, context.retrievedMemory) };
+      }
       if (parts[0] === "status") {
         const status = await cogneeMemory.status();
         return {
@@ -960,12 +997,14 @@ async function main(): Promise<void> {
         if (!entry) return { output: "Использование: /memory add <текст>" };
         const file = await appendProjectMemory(options.workspace, entry);
         context.projectMemory = await loadProjectMemory(options.workspace);
+        await recordMemoryProvenance("explicit_memory", entry, "Stored in project memory.", []);
         const warning = await rememberCognee(`# Explicit project memory\n\n${entry}`, `explicit-${Date.now()}.md`, false);
         return { output: `Memory updated: ${file}${warning ? `\n${warning}` : cogneeMemory.enabled ? "\nCognee synchronized." : ""}` };
       }
       if (parts[0] === "clear") {
         if (!(await confirm("Очистить память проекта?"))) return { output: "Очистка памяти отменена." };
         const file = await clearProjectMemory(options.workspace);
+        await clearMemoryProvenance(options.workspace);
         context.projectMemory = "";
         let remote = "";
         if (cogneeMemory.enabled) {

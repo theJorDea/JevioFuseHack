@@ -36,6 +36,13 @@ src/memory.ts реализует опциональный Cognee REST adapter. M
 `/memory improve` переносит данные активной сессии в граф. Ошибки Cognee не
 влияют на основной session workflow.
 
+src/memory-journal.ts хранит append-only JSONL provenance в
+`.jevio/memory-log.jsonl`. Запись содержит session ID, время, repository HEAD,
+текущие dirty paths и только реально выполненные test-команды с exit code. Этот
+журнал не передаётся модели целиком; `/memory explain` показывает последние
+записи и фактически извлечённый контекст. `/memory clear` очищает журнал вместе с
+Markdown-памятью и dataset Cognee.
+
 src/compaction.ts оценивает размер истории, вызывает отдельную роль compactor и
 строит новый model-visible context из summary и нескольких последних сообщений.
 Checkpoint дописывается в Markdown без удаления исходного transcript. Порог

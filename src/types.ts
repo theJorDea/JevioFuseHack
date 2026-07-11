@@ -217,10 +217,17 @@ export interface ToolContext {
   askUser?: (question: string, options: AskUserOption[]) => Promise<string>;
   updateTodos?: (items: TodoItem[]) => void | Promise<void>;
   reportProgress?: (message: string) => void | Promise<void>;
+  recordVerification?: (record: VerificationRecord) => void;
   onWorkspaceChange?: () => void;
   delegate?: (role: SpecialistRoleName, task: string) => Promise<string>;
   suggestMode?: (mode: ExecutionMode, reason: string) => Promise<boolean>;
   plugins?: PluginToolRegistry;
+}
+
+export interface VerificationRecord {
+  command: string;
+  exitCode: number | string;
+  summary: string;
 }
 
 export interface AskUserOption {
