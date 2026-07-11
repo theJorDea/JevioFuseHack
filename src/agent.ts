@@ -204,6 +204,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
   let webSearchCalls = 0;
   let textToolCallsExecuted = 0;
   let emptyTextContinuations = 0;
+  let malformedTextToolAttempts = 0;
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
@@ -239,6 +240,18 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
 
     if (!toolCalls.length) {
       const content = response.content.trim();
+      const looksLikeTextTool = /<jevio_write\b|<tool_call>|jevio_tool_calls/iu.test(content);
+      if (usesTextTools && looksLikeTextTool && malformedTextToolAttempts < 2) {
+        malformedTextToolAttempts += 1;
+        messages.push({
+          role: "user",
+          content: "Your text-protocol tool call was incomplete or invalid and was not executed. Retry now with ONLY one complete tool block and no introduction. Keep the file compact enough to finish the closing </jevio_write> tag within this response.",
+        });
+        continue;
+      }
+      if (usesTextTools && looksLikeTextTool) {
+        throw new Error(`${options.role} model repeatedly returned an incomplete text tool call: ${content.slice(0, 4_000)}`);
+      }
       if (usesTextTools && !content && textToolCallsExecuted > 0 && emptyTextContinuations < 3) {
         emptyTextContinuations += 1;
         messages.push({
@@ -263,6 +276,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     if (fallbackCalls.length) {
       textToolCallsExecuted += fallbackCalls.length;
       emptyTextContinuations = 0;
+      malformedTextToolAttempts = 0;
     }
     for (const call of toolCalls) {
       options.onEvent?.({ type: "tool", role: options.role, detail: `${call.name} (running)` });

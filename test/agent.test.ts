@@ -67,12 +67,14 @@ test("text tool mode omits native tools and executes the fallback protocol", asy
     requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
     calls += 1;
     const content = calls === 1
-      ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Пишу файлы" } }] })
+      ? "{\"jevio_tool_calls\":["
       : calls === 2
-        ? ""
+        ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Пишу файлы" } }] })
         : calls === 3
-          ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Продолжаю" } }] })
-          : "Готово";
+          ? ""
+          : calls === 4
+            ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Продолжаю" } }] })
+            : "Готово";
     return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }), {
       headers: { "content-type": "application/json" },
     });
@@ -91,11 +93,12 @@ test("text tool mode omits native tools and executes the fallback protocol", asy
 
   assert.equal(result.content, "Готово");
   assert.equal(progress, "Продолжаю");
-  assert.equal(requestBodies.length, 4);
+  assert.equal(requestBodies.length, 5);
   assert.equal(requestBodies[0].tools, undefined);
   assert.match(JSON.stringify(requestBodies[0].messages), /jevio_tool_calls/);
   assert.match(JSON.stringify(requestBodies[0].messages), /jevio_write/);
-  assert.match(JSON.stringify(requestBodies[2].messages), /previous text-protocol tool completed/);
+  assert.match(JSON.stringify(requestBodies[1].messages), /incomplete or invalid/);
+  assert.match(JSON.stringify(requestBodies[3].messages), /previous text-protocol tool completed/);
 });
 
 test("text tool instructions are also supplied to the orchestrator", async (t) => {
