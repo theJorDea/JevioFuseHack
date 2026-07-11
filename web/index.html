@@ -95,10 +95,16 @@
           ></textarea>
           <div class="composer-bar">
             <span class="hint" id="composer-hint">локально · без облака</span>
+            <div class="composer-actions">
+              <button type="button" id="stop" class="btn stop hidden" aria-label="Остановить выполнение">
+                <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                <span>Остановить</span>
+              </button>
             <button type="submit" id="send" class="btn primary send">
               <span>Отправить</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             </button>
+            </div>
           </div>
         </div>
       </form>

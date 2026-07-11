@@ -19,6 +19,7 @@ export interface AgentOptions {
  toolContext: ToolContext;
  history?: ChatMessage[];
  maxTurns?: number;
+ signal?: AbortSignal;
  onEvent?: (event: AgentEvent) => void;
 }
 
@@ -387,14 +388,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
  const completedTextTools: string[] = [];
 
  for (let turn = 1; turn <= maxTurns; turn += 1) {
- options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
+  throwIfAborted(options.signal);
+  options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
  pruneOldToolResults(messages, options.config.agent.keepRecentToolResults);
  let receivedThinking = false;
  const response = await client.complete({ messages, tools: requestTools }, (delta) => {
  if (delta.type !== "reasoning" || !delta.delta) return;
  receivedThinking = true;
  options.onEvent?.({ type: "thinking_delta", role: options.role, detail: delta.delta });
- });
+ }, options.signal);
  if (receivedThinking) options.onEvent?.({ type: "thinking_done", role: options.role, detail: "" });
  messages.push({
  role: "assistant",
@@ -475,6 +477,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
  malformedTextToolAttempts = 0;
  }
  for (const call of toolCalls) {
+ throwIfAborted(options.signal);
  let input: Record<string, unknown> = {};
  try {
  input = parseArguments(call.arguments);
@@ -494,7 +497,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
  if (webSearchCalls > 4) throw new Error("Web search limit reached for this task (max 4). Use existing results, web_fetch a known URL, or continue without more search.");
  }
  output = await executeTool(call.name, input, toolContext);
+ throwIfAborted(options.signal);
  } catch (error) {
+ if (options.signal?.aborted) throw error;
  output = `Tool error: ${(error as Error).message}`;
  failed = true;
  }
@@ -516,4 +521,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
  }
 
  throw new Error(`${options.role} agent exceeded the ${maxTurns}-turn limit.`);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+ if (signal?.aborted) throw new Error("Выполнение остановлено пользователем.");
 }

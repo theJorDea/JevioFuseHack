@@ -170,6 +170,13 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<{ 
         sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: "unknown interaction" });
         return;
       }
+      if (method === "POST" && pathname === "/api/stop") {
+        const stopped = webHost.stopChat();
+        sendJson(res, stopped ? 200 : 409, stopped
+          ? { ok: true, message: "Выполнение останавливается." }
+          : { error: "Нет активной задачи." });
+        return;
+      }
       if (method === "POST" && pathname === "/api/chat") {
         const body = await readJson<{ message?: string }>(req);
         const message = body.message?.trim() || "";

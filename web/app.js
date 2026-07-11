@@ -10,6 +10,7 @@ const els = {
   todos: $("todos"),
   input: $("input"),
   send: $("send"),
+  stop: $("stop"),
   form: $("composer"),
   sessions: $("sessions"),
   sessionSearch: $("session-search"),
@@ -66,6 +67,8 @@ let state = {
   activeTask: null,
   activeDetail: null,
   sessions: [],
+  abortController: null,
+  stopRequested: false,
 };
 
 let recoveryTimer = null;
@@ -435,7 +438,7 @@ function startRecoveryPolling() {
         return;
       }
       state.busy = false;
-      els.send.disabled = false;
+      setBusyControls(false);
       setLive("");
       await refreshHistory();
       await refreshSessions();
@@ -612,6 +615,7 @@ els.form.addEventListener("submit", async (event) => {
   autoResize();
   await sendChat(text);
 });
+els.stop.addEventListener("click", stopChat);
 
 els.input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -626,9 +630,35 @@ function autoResize() {
   els.input.style.height = `${Math.min(els.input.scrollHeight, 160)}px`;
 }
 
+function setBusyControls(busy) {
+  els.send.disabled = busy;
+  els.send.classList.toggle("hidden", busy);
+  els.stop.classList.toggle("hidden", !busy);
+  els.stop.disabled = false;
+  const label = els.stop.querySelector("span");
+  if (label) label.textContent = "Остановить";
+}
+
+async function stopChat() {
+  if (!state.busy && !state.serverBusy) return;
+  state.stopRequested = true;
+  els.stop.disabled = true;
+  const label = els.stop.querySelector("span");
+  if (label) label.textContent = "Останавливаю…";
+  state.abortController?.abort();
+  try {
+    await api("/api/stop", { method: "POST" });
+  } catch (error) {
+    console.error("Failed to stop chat", error);
+  }
+}
+
 async function sendChat(text) {
   state.busy = true;
-  els.send.disabled = true;
+  state.stopRequested = false;
+  const controller = new AbortController();
+  state.abortController = controller;
+  setBusyControls(true);
   setPill("busy", "работает…");
   setLive("запуск…");
 
@@ -637,6 +667,7 @@ async function sendChat(text) {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify({ message: text }),
+      signal: controller.signal,
     });
     if (!res.ok || !res.body) throw new Error(await res.text());
 
@@ -661,15 +692,26 @@ async function sendChat(text) {
       if (line) handleEvent(JSON.parse(line.slice(6)));
     }
   } catch (error) {
-    appendBubble("system", `Ошибка: ${error.message}`);
-    setPill("error", "ошибка");
+    if (error.name === "AbortError" || state.stopRequested) {
+      appendBubble("system", "Выполнение остановлено.");
+      setPill("idle", "остановлено");
+    } else {
+      appendBubble("system", `Ошибка: ${error.message}`);
+      setPill("error", "ошибка");
+    }
   } finally {
+    state.abortController = null;
     state.busy = false;
-    els.send.disabled = false;
+    setBusyControls(false);
     setLive("");
     try {
-      await refreshStatus();
+      const status = await refreshStatus();
       await refreshSessions();
+      if (status.busy) {
+        state.busy = true;
+        setBusyControls(true);
+        startRecoveryPolling();
+      }
     } catch (error) {
       setPill("error", "нет связи");
       console.error("Failed to refresh chat status", error);
@@ -740,7 +782,7 @@ async function boot() {
     const status = await refreshStatus();
     if (status.busy) {
       state.busy = true;
-      els.send.disabled = true;
+      setBusyControls(true);
     }
     await refreshHistory();
     await refreshSessions();

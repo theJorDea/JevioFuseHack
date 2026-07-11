@@ -72,8 +72,8 @@ export class OpenAICompatibleClient implements ModelClient {
     this.#role = role;
   }
 
-  async complete(request: ModelRequest, onDelta?: (delta: ModelDelta) => void): Promise<ModelResponse> {
-    if (this.#provider.transport === "responses") return this.completeResponses(request, onDelta);
+  async complete(request: ModelRequest, onDelta?: (delta: ModelDelta) => void, signal?: AbortSignal): Promise<ModelResponse> {
+    if (this.#provider.transport === "responses") return this.completeResponses(request, onDelta, signal);
     const apiKey = this.#provider.apiKey
       ?? (this.#provider.apiKeyEnv ? process.env[this.#provider.apiKeyEnv] : undefined);
     if (this.#provider.apiKeyEnv && !apiKey) {
@@ -98,10 +98,11 @@ export class OpenAICompatibleClient implements ModelClient {
           max_tokens: request.maxTokens ?? this.#role.maxTokens,
           stream: Boolean(onDelta),
         }),
-        signal: AbortSignal.timeout(10 * 60_000),
+        signal: requestSignal(signal),
       });
     } catch (error) {
-      if (onDelta) return this.complete(request);
+      if (signal?.aborted) throw error;
+      if (onDelta) return this.complete(request, undefined, signal);
       throw new Error(`Unable to reach model endpoint ${this.#provider.baseUrl}: ${errorMessage(error)}`);
     }
 
@@ -130,12 +131,12 @@ export class OpenAICompatibleClient implements ModelClient {
     try {
       return await streamResponse(response.body, onDelta);
     } catch (error) {
-      if (isTransientStreamError(error)) return this.complete(request);
+      if (isTransientStreamError(error) && !signal?.aborted) return this.complete(request, undefined, signal);
       throw error;
     }
   }
 
-  private async completeResponses(request: ModelRequest, onDelta?: (delta: ModelDelta) => void): Promise<ModelResponse> {
+  private async completeResponses(request: ModelRequest, onDelta?: (delta: ModelDelta) => void, signal?: AbortSignal): Promise<ModelResponse> {
     const apiKey = this.#provider.apiKey
       ?? (this.#provider.apiKeyEnv ? process.env[this.#provider.apiKeyEnv] : undefined);
     if (this.#provider.apiKeyEnv && !apiKey) {
@@ -180,7 +181,7 @@ export class OpenAICompatibleClient implements ModelClient {
         } : {}),
         ...(request.maxTokens ?? this.#role.maxTokens ? { max_output_tokens: request.maxTokens ?? this.#role.maxTokens } : {}),
       }),
-      signal: AbortSignal.timeout(10 * 60_000),
+      signal: requestSignal(signal),
     });
     const text = await response.text();
     let body: ResponsesResponse;
@@ -200,6 +201,11 @@ export class OpenAICompatibleClient implements ModelClient {
     if (content) onDelta?.({ type: "text", delta: content });
     return modelResponse({ content, ...(calls.length ? { tool_calls: calls } : {}) });
   }
+}
+
+function requestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(10 * 60_000);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
 function errorMessage(error: unknown): string {

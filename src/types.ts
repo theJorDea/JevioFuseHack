@@ -198,7 +198,7 @@ export interface ModelRequest {
 }
 
 export interface ModelClient {
- complete(request: ModelRequest, onDelta?: (delta: ModelDelta) => void): Promise<ModelResponse>;
+ complete(request: ModelRequest, onDelta?: (delta: ModelDelta) => void, signal?: AbortSignal): Promise<ModelResponse>;
 }
 
 export interface SkillMetadata {

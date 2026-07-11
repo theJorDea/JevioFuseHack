@@ -1,5 +1,5 @@
 import path from "node:path";
-import { runAgent, type AgentEvent } from "./agent.ts";
+import { runAgent, type AgentEvent, type AgentOptions } from "./agent.ts";
 import { loadConfig, setAllRolesModelConfig, setDefaultProviderConfig } from "./config.ts";
 import { listProviderModels } from "./setup.ts";
 import { CogneeMemory } from "./memory.ts";
@@ -67,6 +67,7 @@ export class WebHost {
   private busy = false;
   private activeTask: string | null = null;
   private activeDetail: string | null = null;
+  private activeController: AbortController | null = null;
   private projectMemory = "";
 
   private constructor(workspace: string) {
@@ -241,6 +242,17 @@ export class WebHost {
     return true;
   }
 
+  stopChat(): boolean {
+    if (!this.busy || !this.activeController) return false;
+    for (const [id, pending] of this.pending) {
+      this.pending.delete(id);
+      if (pending.kind === "confirm") pending.resolve(false);
+      else pending.resolve("[cancelled]");
+    }
+    this.activeController.abort();
+    return true;
+  }
+
   async *runChat(userText: string): AsyncGenerator<WebStreamEvent> {
     if (this.busy) {
       yield { type: "error", message: "Уже выполняется другая задача. Дождитесь завершения." };
@@ -253,6 +265,8 @@ export class WebHost {
     }
 
     this.busy = true;
+    const controller = new AbortController();
+    this.activeController = controller;
     this.activeTask = text;
     this.activeDetail = "Запуск…";
     const queue: WebStreamEvent[] = [];
@@ -284,13 +298,19 @@ export class WebHost {
       notify = resolve;
     });
 
-    const run = this.execute(text, push).then(
+    const run = this.execute(text, push, controller.signal).then(
       (content) => push({ type: "done", content, sessionId: this.active.info.id }),
-      (error) => push({ type: "error", message: error instanceof Error ? error.message : String(error) }),
+      (error) => push({
+        type: "error",
+        message: controller.signal.aborted
+          ? "Выполнение остановлено пользователем."
+          : error instanceof Error ? error.message : String(error),
+      }),
     ).finally(() => {
       this.busy = false;
       this.activeTask = null;
       this.activeDetail = null;
+      this.activeController = null;
     });
 
     while (this.busy || queue.length) {
@@ -300,7 +320,7 @@ export class WebHost {
     await run;
   }
 
-  private async execute(task: string, emit: (event: WebStreamEvent) => void): Promise<string> {
+  private async execute(task: string, emit: (event: WebStreamEvent) => void, signal: AbortSignal): Promise<string> {
     emit({ type: "message", role: "user", content: task });
     emit({ type: "status", detail: "Запуск…" });
 
@@ -431,8 +451,10 @@ export class WebHost {
       suggestMode: async () => false,
     };
 
+    const runWithSignal = (options: AgentOptions) => runAgent({ ...options, signal });
+
     context.delegate = async (role: SpecialistRoleName, specialistTask: string) => {
-      const result = await runAgent({
+      const result = await runWithSignal({
         role,
         task: specialistTask,
         config: this.config,
@@ -467,6 +489,7 @@ export class WebHost {
         toolContext: context,
         history: this.history,
         onEvent,
+        runner: runWithSignal,
         requireWorkspaceChange: requiresChange,
         getWorkspaceMutationCount: () => this.workspaceMutationCount,
       });
@@ -478,6 +501,7 @@ export class WebHost {
         toolContext: context,
         history: this.history,
         onEvent,
+        runner: runWithSignal,
         requireWorkspaceChange: requiresChange,
         getWorkspaceMutationCount: () => this.workspaceMutationCount,
       });
@@ -489,11 +513,12 @@ export class WebHost {
         toolContext: context,
         history: this.history,
         onEvent,
+        runner: runWithSignal,
       });
       content = result.content;
     } else {
       const role: RoleName = this.mode === "direct" ? "coder" : "orchestrator";
-      let result = await runAgent({
+      let result = await runWithSignal({
         role,
         task: agentTask,
         config: this.config,
@@ -503,7 +528,7 @@ export class WebHost {
       });
       if (requiresChange && this.workspaceMutationCount === mutationsBefore && role === "orchestrator" && !planMode.active) {
         emit({ type: "status", detail: "Передаю coder — файлы ещё не менялись" });
-        result = await runAgent({
+        result = await runWithSignal({
           role: "coder",
           task: `${task}\n\nImplement now in the workspace.\n\nContext:\n${result.content}`,
           config: this.config,
