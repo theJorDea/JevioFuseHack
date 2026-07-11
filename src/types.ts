@@ -211,6 +211,8 @@ export interface SkillMetadata {
 
 export interface ToolContext {
  workspace: string;
+ /** Cancellation signal for the current interactive run. */
+ signal?: AbortSignal;
  skills: SkillMetadata[];
  projectMemory?: string;
  retrievedMemory?: string;

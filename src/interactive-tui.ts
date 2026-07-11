@@ -43,7 +43,7 @@ export interface TuiProvider {
 export interface InteractiveTuiOptions {
   workspace: string;
   terminal?: Terminal;
-  submit(input: string): Promise<{ output?: string; exit?: boolean }>;
+  submit(input: string, signal?: AbortSignal): Promise<{ output?: string; exit?: boolean }>;
   listSessions(): Promise<TuiSession[]>;
   resumeSession(id: string): Promise<string>;
   getSession(): { id: string; title: string; messageCount: number };
@@ -309,6 +309,7 @@ export class InteractiveTui {
   private readonly loader: Loader;
   private readonly editor: Editor;
   private busy = false;
+  private activeController?: AbortController;
   private resolveExit?: () => void;
   private stopped = false;
   private dismissOverlay?: () => void;
@@ -346,7 +347,7 @@ export class InteractiveTui {
     this.root.addChild(this.transcript);
     this.root.addChild(this.loader);
     this.root.addChild(this.status);
-    this.help.setText(dim("Enter · /help · Ctrl+K команды · Ctrl+O блоки · /roles · /models · Esc · Ctrl+C"));
+    this.help.setText(dim("Enter · /help · Ctrl+K команды · Ctrl+O блоки · /roles · /models · Esc · Ctrl+C остановить/выйти"));
     this.root.addChild(this.help);
     this.root.addChild(this.editor);
     this.root.addChild(this.modeFooter);
@@ -357,7 +358,11 @@ export class InteractiveTui {
 
   private onGlobalInput(data: string): { consume: true } | undefined {
     if (data === "\x03") {
-      if (this.busy) this.setStatus("Агент еще работает. Дождитесь завершения текущей задачи.", yellow);
+      if (this.busy) {
+        this.dismissOverlay?.();
+        this.activeController?.abort();
+        this.setStatus("Останавливаю текущую задачу…", yellow);
+      }
       else this.stop();
       return { consume: true };
     }
@@ -710,21 +715,27 @@ export class InteractiveTui {
     // Fresh in-place activity panel for this turn (previous one is already frozen).
     this.liveActivity = undefined;
     this.beginBusy(value.startsWith("/") ? "Выполняю команду..." : "Работаю...");
+    const controller = new AbortController();
+    this.activeController = controller;
     let failed = false;
     try {
-      const result = await this.options.submit(input);
+      const result = await this.options.submit(input, controller.signal);
       this.freezeLiveActivity();
       this.finalizeThinking();
       if (result.output) this.appendMessage("fuse", result.output);
       this.refreshHeader();
       if (result.exit) this.stop();
     } catch (error) {
-      failed = true;
+      failed = !controller.signal.aborted;
       this.freezeLiveActivity();
       this.finalizeThinking();
-      this.appendMessage("error", getErrorMessage(error));
+      this.appendMessage("error", controller.signal.aborted ? "Выполнение остановлено пользователем." : getErrorMessage(error));
     } finally {
-      this.endBusy(failed ? "Задача завершилась с ошибкой" : "Готово", failed ? red : dim);
+      this.activeController = undefined;
+      this.endBusy(
+        controller.signal.aborted ? "Остановлено" : failed ? "Задача завершилась с ошибкой" : "Готово",
+        controller.signal.aborted ? yellow : failed ? red : dim,
+      );
     }
   }
 

@@ -1797,7 +1797,13 @@ ${agentTask}`;
  terminal?.close();
  tui = new InteractiveTui({
  workspace: options.workspace,
- submit: (input) => handleInteractiveInput(input, true),
+ submit: (input, signal) => {
+ const previousSignal = context.signal;
+ context.signal = signal;
+ return handleInteractiveInput(input, true).finally(() => {
+ if (context.signal === signal) context.signal = previousSignal;
+ });
+ },
  listSessions: async () => (await listSessions(options.workspace)).map((session) => ({
  id: session.id,
  title: session.title,
