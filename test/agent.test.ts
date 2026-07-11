@@ -67,7 +67,7 @@ test("text tool mode omits native tools and executes the fallback protocol", asy
     requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
     calls += 1;
     const content = calls === 1
-      ? "{\"jevio_tool_calls\":["
+      ? "{\"jevio_tool_calls\":[{\"name\":\"report_progress\",\"arguments\":"
       : calls === 2
         ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Пишу файлы" } }] })
         : calls === 3

@@ -185,9 +185,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
   const userMessage: ChatMessage = { role: "user", content: options.task };
   const tools = toolsForRole(options.role);
   const usesTextTools = toolMode === "text" && tools.length > 0;
+  const allowedToolNames = tools.map((tool) => tool.function.name).join(", ");
   const textToolInstructions = options.role === "coder"
-    ? `This provider uses Jevio's text tool protocol. Return at most one tool call per response and no explanatory text. For write_file, prefer this format because file content needs no JSON escaping:\n<jevio_write path="relative/path">\ncomplete file content\n</jevio_write>\nFor other tools use: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue with the next tool call or a concise final summary.`
-    : `This provider uses Jevio's text tool protocol. To call a tool, return ONLY JSON without Markdown and at most one call: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue normally.`;
+    ? `This provider uses Jevio's text tool protocol. Allowed tools: ${allowedToolNames}. Never invent tool names. Return at most one tool call per response and no explanatory text. For write_file, prefer this format because file content needs no JSON escaping:\n<jevio_write path="relative/path">\ncomplete file content\n</jevio_write>\nFor other tools use: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue with the next tool call or a concise final summary.`
+    : `This provider uses Jevio's text tool protocol. Allowed tools: ${allowedToolNames}. Never invent tool names. To call a tool, return ONLY JSON without Markdown and at most one call: {"jevio_tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}. After Jevio executes it, continue normally.`;
   const modelUserMessage: ChatMessage = usesTextTools
     ? {
       role: "user",
@@ -240,7 +241,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
 
     if (!toolCalls.length) {
       const content = response.content.trim();
-      const looksLikeTextTool = /<jevio_write\b|<tool_call>|jevio_tool_calls/iu.test(content);
+      const knownToolMention = tools.some((tool) => new RegExp(`(?:"name"\\s*:\\s*"${tool.function.name}"|<jevio_${tool.function.name}\\b)`, "iu").test(content));
+      const looksLikeTextTool = knownToolMention;
       if (usesTextTools && looksLikeTextTool && malformedTextToolAttempts < 2) {
         malformedTextToolAttempts += 1;
         messages.push({
