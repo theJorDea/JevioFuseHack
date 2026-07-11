@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "../src/setup.ts";
+import { defaultModel, discoverLocalProviders, isSupportedNodeVersion, listProviderModels, parseModelsPayload } from "../src/setup.ts";
 
 test("setup discovers local Ollama and LM Studio model endpoints", async () => {
   const providers = await discoverLocalProviders(async (url) => {
@@ -27,4 +27,24 @@ test("setup keeps only reachable providers and validates supported Node versions
   assert.equal(isSupportedNodeVersion("v22.19.0"), true);
   assert.equal(isSupportedNodeVersion("v22.18.0"), false);
   assert.equal(isSupportedNodeVersion("v23.0.0"), true);
+});
+
+test("parseModelsPayload accepts OpenAI, Ollama, and bare arrays", () => {
+  assert.deepEqual(parseModelsPayload({ data: [{ id: "a" }, { id: "b" }] }), ["a", "b"]);
+  assert.deepEqual(parseModelsPayload({ models: [{ name: "qwen3:14b" }] }), ["qwen3:14b"]);
+  assert.deepEqual(parseModelsPayload(["x", "y"]), ["x", "y"]);
+});
+
+test("listProviderModels hits OpenAI-compatible /models", async () => {
+  const seen: string[] = [];
+  const models = await listProviderModels("http://example.test/v1", {
+    apiKey: "secret",
+    fetcher: async (url, init) => {
+      seen.push(String(url));
+      assert.equal(new Headers(init?.headers).get("authorization"), "Bearer secret");
+      return { ok: true, json: async () => ({ data: [{ id: "gpt-test" }, { id: "coder-7b" }] }) };
+    },
+  });
+  assert.equal(seen[0], "http://example.test/v1/models");
+  assert.deepEqual(models, ["coder-7b", "gpt-test"]);
 });

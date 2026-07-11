@@ -13,7 +13,10 @@ import {
   historyCharacters,
   needsAutoCompaction,
 } from "./compaction.ts";
-import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "./config.ts";
+import { addProviderConfig, loadConfig, saveProviderSecret, setAllRolesModelConfig, setDefaultProviderConfig, setRoleProviderConfig } from "./config.ts";
+import { dreamStatus, runDream } from "./dream.ts";
+import { generateIdeas } from "./ideas.ts";
+import { formatKairosReport, runKairos, shouldAutoKairos } from "./kairos.ts";
 import { CogneeMemory, completedTurnMemory } from "./memory.ts";
 import {
   appendMemoryProvenance,
@@ -48,9 +51,10 @@ import { discoverSkills } from "./skills.ts";
 import { buildRepositoryMap, getCtagsStatus, prewarmSymbolIndex } from "./symbol-index.ts";
 import { InteractiveTui } from "./interactive-tui.ts";
 import { McpPluginManager } from "./mcp.ts";
-import { isImplementationRequest } from "./task-intent.ts";
-import { defaultModel, discoverLocalProviders, isSupportedNodeVersion } from "./setup.ts";
-import type { ChatMessage, ExecutionMode, RoleName, ToolContext, VerificationRecord } from "./types.ts";
+import { isImplementationRequest, recommendExecutionMode } from "./task-intent.ts";
+import { defaultModel, discoverLocalProviders, isSupportedNodeVersion, listProviderModels } from "./setup.ts";
+import { formatInteractiveHelp, resolveSlashCommand } from "./slash-commands.ts";
+import type { ChatMessage, ExecutionMode, PlanModeState, RoleName, ToolContext, VerificationRecord } from "./types.ts";
 
 interface CliOptions {
   command: "run" | "init" | "setup" | "doctor" | "skills" | "plugins" | "review" | "fix-review" | "help";
@@ -62,6 +66,8 @@ interface CliOptions {
   councilPlan: boolean;
   councilReview: boolean;
   yes: boolean;
+  /** Session YOLO starts enabled (same as --yes, but can also be toggled via /yolo). */
+  yolo: boolean;
   continueSession: boolean;
   sessionRequested: boolean;
   sessionId?: string;
@@ -87,40 +93,10 @@ Options:
   --council-review             3 reviewer по рискам -> judge
   --direct                     Работать напрямую через coder без оркестрации
   --yes, -y                    Автоматически разрешать записи, shell и MCP-плагины
+  --yolo                       Alias для --yes (режим YOLO)
   --workspace, -w <path>       Папка проекта (по умолчанию текущая)
   --config, -C <path>          Явный файл конфигурации
   --help, -h                   Показать эту справку
-`;
-
-const INTERACTIVE_HELP = `Команды сессии:
-  /new, /clear                 Начать новую сессию
-  /sessions, /session          Открыть и переключить сессию
-  /resume [id]                 Продолжить выбранную сессию
-  /title [text], /rename       Показать или изменить название
-  /fork                        Создать копию текущей сессии
-  /export-md [path]            Экспортировать Markdown-историю
-  /compact [instruction]       Сжать контекст настроенной моделью
-  /compact status              Показать настройки сжатия и оценку контекста
-  /setup                       Настроить провайдера и модель для сессии
-  /provider [name]             Показать или сменить провайдера для сессии
-  /roles                       Назначить отдельные провайдеры и модели ролям
-  /skills                      Показать встроенные и проектные skills
-  /plugins                     Показать MCP-плагины и доступные инструменты
-  /fix-review                  Исправить findings последнего Council Review
-  /team                        Использовать architect -> coder -> reviewer для следующих задач
-  /council-plan                Совет архитекторов, затем coder и reviewer
-  /council-review              Совет ревьюеров текущих изменений
-  /direct                      Работать напрямую через coder для следующих задач
-  /orchestrate                 Вернуться к динамической оркестрации
-  /memory                      Показать память проекта
-  /memory add <text>           Добавить запись в память проекта
-  /memory status               Проверить подключение Cognee
-  /memory explain              Показать последний recall и provenance памяти
-  /memory sync                 Синхронизировать MEMORY.md с Cognee
-  /memory improve              Обогатить граф памяти Cognee
-  /memory clear                Очистить память проекта
-  /help                        Показать команды
-  /exit                        Выйти
 `;
 
 function parseArgs(argv: string[]): CliOptions {
@@ -133,6 +109,7 @@ function parseArgs(argv: string[]): CliOptions {
     councilPlan: false,
     councilReview: false,
     yes: false,
+    yolo: false,
     continueSession: false,
     sessionRequested: false,
   };
@@ -157,8 +134,9 @@ function parseArgs(argv: string[]): CliOptions {
       options.councilReview = true;
     } else if (argument === "--direct") {
       options.direct = true;
-    } else if (argument === "--yes" || argument === "-y") {
+    } else if (argument === "--yes" || argument === "-y" || argument === "--yolo") {
       options.yes = true;
+      options.yolo = true;
     } else if (argument === "--workspace" || argument === "-w") {
       const value = argv[++index];
       if (!value) throw new Error(`${argument} requires a path.`);
@@ -467,7 +445,15 @@ async function main(): Promise<void> {
   const projectIdentity = await loadProjectIdentity(options.workspace);
   const mcpPlugins = await McpPluginManager.create(options.workspace, config);
   context.plugins = mcpPlugins;
-  context.autoApprovePlugins = options.yes || config.permissions.autoApprovePlugins;
+  let yolo = options.yes || options.yolo;
+  const baseShellMode = config.permissions.shellMode;
+  const applyYoloPermissions = (): void => {
+    context.autoApproveWrites = yolo || config.permissions.autoApproveWorkspaceWrites;
+    context.autoApproveShell = yolo || config.permissions.autoApproveShell;
+    context.autoApprovePlugins = yolo || config.permissions.autoApprovePlugins;
+    context.shellMode = yolo ? "full" : baseShellMode;
+  };
+  applyYoloPermissions();
   const cogneeMemory = new CogneeMemory(cogneeConfigForProject(config.memory.cognee, projectIdentity), options.workspace);
   context.askUser = async (question, choices) => {
     if (tui) return tui.askUser(question, choices);
@@ -500,6 +486,7 @@ async function main(): Promise<void> {
   context.recordVerification = (record) => {
     turnVerifications.push(record);
   };
+  let successfulTurns = 0;
   const rememberCognee = async (content: string, filename: string, sessionAware = true): Promise<string | undefined> => {
     if (!cogneeMemory.enabled) return undefined;
     try {
@@ -537,6 +524,18 @@ async function main(): Promise<void> {
     if (config.memory.cognee.rememberCompletedTurns) {
       await rememberCognee(completedTurnMemory(task, content, provenance), `turn-${active.info.messageCount}.md`);
     }
+    successfulTurns += 1;
+    // Lightweight auto-KAIROS: after every 2nd successful interactive turn, surface watch/action signals.
+    if (tui && successfulTurns % 2 === 0) {
+      void runKairos({ workspace: options.workspace, config, toolContext: context, synthesize: false })
+        .then((observation) => {
+          if (!shouldAutoKairos(observation, { minSeverity: "watch" })) return;
+          tui?.appendSystem(formatKairosReport(observation));
+        })
+        .catch(() => {
+          // Proactive scan must never break the main loop.
+        });
+    }
   };
   let workspaceMutationCount = 0;
   context.updateTodos = async (items) => {
@@ -556,14 +555,83 @@ async function main(): Promise<void> {
     : options.direct
       ? "direct"
       : "orchestrate";
+  const planMode: PlanModeState = { active: false };
+  let planDocumentForTools: PlanDocument | undefined;
   let modeSuggestionUsed = false;
-  context.suggestMode = async (suggestedMode, reason) => {
+  /** When true (default), host auto-picks team/council/plan for this task while sticky mode is orchestrate. */
+  let autoRoute = true;
+  let pendingModeRestart: { mode: ExecutionMode; reason: string } | undefined;
+  context.planMode = planMode;
+  context.enterPlanMode = async (goal) => {
+    planMode.active = true;
+    planMode.goal = goal;
+    planMode.enteredAt = new Date().toISOString();
+    planMode.approvedPlan = undefined;
+    reportEvent({ type: "progress", role: "orchestrator", detail: goal ? `Plan Mode: ${goal}` : "Plan Mode active" });
+    return `Plan Mode active${goal ? ` (goal: ${goal})` : ""}. Write tools and coder delegation are blocked. Explore, then call submit_plan or exit_plan_mode.`;
+  };
+  context.exitPlanMode = async (reason) => {
+    planMode.active = false;
+    planMode.goal = undefined;
+    planMode.enteredAt = undefined;
+    // Keep approvedPlan if already set so implement can follow it.
+    reportEvent({ type: "progress", role: "orchestrator", detail: reason ? `Left Plan Mode: ${reason}` : "Left Plan Mode" });
+    return `Plan Mode exited${reason ? `: ${reason}` : ""}. Writes are allowed again.`;
+  };
+  context.submitPlan = async (plan) => {
+    planDocumentForTools ??= await createPlanDocument(options.workspace, active.info.id);
+    await writePlanDocument(planDocumentForTools, plan, "pending");
+    let decision: { decision: "approve" | "reject" | "revise"; feedback?: string };
+    if (yolo || options.yes) {
+      decision = { decision: "approve" };
+    } else if (tui) {
+      decision = await tui.reviewPlan(plan, planDocumentForTools.path);
+    } else if (terminal) {
+      process.stdout.write(`\nПлан реализации\n\n${plan}\n\nФайл: ${planDocumentForTools.path}\n`);
+      const answer = (await terminal.question("Одобрить план? [y] да / [n] нет / [o] предложить изменения: ")).trim().toLowerCase();
+      if (/^(y|yes|д|да)$/.test(answer)) decision = { decision: "approve" };
+      else if (/^(o|other|другое)$/.test(answer)) {
+        const feedback = (await terminal.question("Что изменить в плане? ")).trim();
+        decision = feedback ? { decision: "revise", feedback } : { decision: "reject" };
+      } else decision = { decision: "reject" };
+    } else {
+      throw new Error("План требует интерактивного согласования. Для CI используйте --yes или --yolo.");
+    }
+    if (decision.feedback) planDocumentForTools.feedback.push(decision.feedback);
+    await writePlanDocument(
+      planDocumentForTools,
+      plan,
+      decision.decision === "approve" ? "approved" : decision.decision === "reject" ? "rejected" : "pending",
+    );
+    if (decision.decision === "approve") {
+      planMode.approvedPlan = plan;
+      planMode.active = false;
+      return `Plan approved. Plan Mode ended. Implement this plan now:\n\n${plan}`;
+    }
+    if (decision.decision === "revise") {
+      planMode.active = true;
+      return `User requested plan revisions. Stay in Plan Mode and revise.\n\nFEEDBACK:\n${decision.feedback ?? ""}`;
+    }
+    planMode.active = false;
+    planMode.approvedPlan = undefined;
+    return "Plan rejected by user. Plan Mode ended. Do not edit files unless the user gives a new request.";
+  };
+  context.suggestMode = async (suggestedMode, reason, options) => {
     if (modeSuggestionUsed || suggestedMode === mode) return false;
     modeSuggestionUsed = true;
+    const applyNow = options?.applyNow !== false;
     let accepted = false;
-    if (tui) {
+    // Auto-accept when auto-route is on, YOLO, or non-interactive --yes.
+    if (autoRoute || yolo || options.yes) {
+      accepted = true;
+      reportEvent({
+        type: "progress",
+        role: "orchestrator",
+        detail: `auto mode → ${suggestedMode}: ${reason}`,
+      });
+    } else if (tui) {
       const answer = await tui.askUser(
-        `Fuse предлагает режим ${suggestedMode}.\n\n${reason}\n\nПереключение начнет действовать со следующей задачи.`,
+        `Fuse предлагает режим ${suggestedMode}.\n\n${reason}\n\n${applyNow ? "Применить к текущей задаче?" : "Переключить для следующих задач?"}`,
         [
           { label: "Переключить", description: `Использовать ${suggestedMode}` },
           { label: "Оставить", description: `Сохранить ${mode}` },
@@ -571,20 +639,127 @@ async function main(): Promise<void> {
       );
       accepted = answer === "Переключить";
     } else if (terminal) {
-      const answer = await terminal.question(`Fuse предлагает режим ${suggestedMode}: ${reason}\nПереключить для следующих задач? [y/N] `);
-      accepted = /^(y|yes|д|да)$/i.test(answer.trim());
+      const answer = await terminal.question(
+        `Fuse предлагает режим ${suggestedMode}: ${reason}\nПереключить${applyNow ? " сейчас" : " для следующих задач"}? [Y/n] `,
+      );
+      accepted = !answer.trim() || /^(y|yes|д|да)$/i.test(answer.trim());
+    } else {
+      accepted = true;
     }
-    if (accepted) mode = suggestedMode;
+    if (accepted) {
+      mode = suggestedMode;
+      if (suggestedMode === "plan") {
+        planMode.active = true;
+        planMode.enteredAt = new Date().toISOString();
+      } else {
+        planMode.active = false;
+      }
+      tui?.refreshHeader();
+      if (applyNow) pendingModeRestart = { mode: suggestedMode, reason };
+    }
     return accepted;
   };
   const currentProvider = (): string => {
     const providers = new Set(Object.values(config.roles).map((role) => role.provider ?? config.defaultProvider));
     return providers.size === 1 ? [...providers][0] : "mixed";
   };
-  const selectProvider = (name: string): string => {
+  const selectProvider = async (name: string, applyDefaultModel = false): Promise<string> => {
     if (!config.providers[name]) throw new Error(`Unknown provider '${name}'. Add it to jevio.config.json first.`);
-    for (const role of Object.values(config.roles)) role.provider = name;
-    return `Провайдер: ${name}. Применен ко всем ролям этой сессии; названия моделей ролей не изменены.`;
+    const file = await setDefaultProviderConfig(options.workspace, options.configPath, name, { applyDefaultModel });
+    config.defaultProvider = name;
+    const defaultModelName = config.providers[name].defaultModel;
+    for (const role of Object.values(config.roles)) {
+      role.provider = name;
+      if (applyDefaultModel && defaultModelName) {
+        role.model = defaultModelName;
+        if (/\bkimi\b/i.test(defaultModelName)) role.temperature = 1;
+      }
+    }
+    const modelNote = applyDefaultModel && defaultModelName
+      ? ` Модель ролей: ${defaultModelName}.`
+      : " Модели ролей не изменены — /models чтобы выбрать.";
+    return `Провайдер: ${name}.${modelNote} Сохранено в ${file}.`;
+  };
+  const currentModel = (): string => {
+    const models = new Set(Object.values(config.roles).map((role) => role.model));
+    return models.size === 1 ? [...models][0] : "mixed";
+  };
+  const resolveProviderApiKey = (providerName: string): string | undefined => {
+    const provider = config.providers[providerName];
+    if (!provider) return undefined;
+    return provider.apiKey ?? (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined);
+  };
+  const listModelsForProvider = async (providerName?: string): Promise<{
+    provider: string;
+    models: string[];
+    current: string;
+    detail?: string;
+  }> => {
+    const name = providerName && config.providers[providerName]
+      ? providerName
+      : currentProvider() === "mixed"
+        ? config.defaultProvider
+        : currentProvider();
+    const provider = config.providers[name];
+    if (!provider) throw new Error(`Unknown provider '${name}'.`);
+    try {
+      const models = await listProviderModels(provider.baseUrl, {
+        apiKey: resolveProviderApiKey(name),
+        timeoutMs: 8_000,
+      });
+      return {
+        provider: name,
+        models,
+        current: currentModel(),
+        detail: models.length ? undefined : "Endpoint ответил, но список моделей пуст.",
+      };
+    } catch (error) {
+      // Fallback: still useful when /models is unavailable on the gateway.
+      const known = [
+        ...new Set([
+          provider.defaultModel,
+          ...Object.values(config.roles)
+            .filter((role) => (role.provider ?? config.defaultProvider) === name)
+            .map((role) => role.model),
+        ].filter((value): value is string => Boolean(value?.trim()))),
+      ];
+      return {
+        provider: name,
+        models: known,
+        current: currentModel(),
+        detail: `Не удалось получить /models (${(error as Error).message}). Показаны известные модели из конфига; можно задать id вручную: /models <id>.`,
+      };
+    }
+  };
+  const selectModel = async (model: string, providerName?: string): Promise<string> => {
+    const normalized = model.trim();
+    if (!normalized) throw new Error("Укажите id модели: /models <id>");
+    const provider = providerName && config.providers[providerName]
+      ? providerName
+      : currentProvider() === "mixed"
+        ? config.defaultProvider
+        : currentProvider();
+    if (!config.providers[provider]) throw new Error(`Unknown provider '${provider}'.`);
+    const file = await setAllRolesModelConfig(options.workspace, options.configPath, normalized, provider);
+    for (const role of Object.values(config.roles)) {
+      role.provider = provider;
+      role.model = normalized;
+      if (/\bkimi\b/i.test(normalized)) role.temperature = 1;
+    }
+    config.defaultProvider = provider;
+    if (config.providers[provider]) config.providers[provider].defaultModel = normalized;
+    return `Модель: ${normalized} · провайдер: ${provider}. Применено ко всем ролям. Сохранено в ${file}.`;
+  };
+  const modelsStatusText = (): string => {
+    const lines = [
+      `Провайдер: ${currentProvider()}`,
+      `Модель: ${currentModel()}`,
+      "",
+      "Роли:",
+      ...Object.entries(config.roles).map(([role, settings]) =>
+        `  ${role}: ${(settings.provider ?? config.defaultProvider)} / ${settings.model}`),
+    ];
+    return lines.join("\n");
   };
   const addProvider = async (provider: { name: string; baseUrl: string; apiKey?: string; model: string; transport?: "chat_completions" | "responses"; toolMode?: "auto" | "native" | "text" }): Promise<string> => {
     const file = await addProviderConfig(options.workspace, options.configPath, provider);
@@ -685,6 +860,34 @@ async function main(): Promise<void> {
   const executeTask = async (task: string): Promise<string> => {
     turnVerifications = [];
     modeSuggestionUsed = false;
+    pendingModeRestart = undefined;
+    planDocumentForTools = undefined;
+
+    // Host auto-routing: while sticky mode is orchestrate, pick a better pipeline for this task.
+    let effectiveMode: ExecutionMode = mode;
+    if (autoRoute && mode === "orchestrate") {
+      const recommendation = recommendExecutionMode(task, history);
+      if (recommendation.auto && recommendation.mode !== "orchestrate") {
+        effectiveMode = recommendation.mode;
+        reportEvent({
+          type: "progress",
+          role: "orchestrator",
+          detail: `auto-route → ${recommendation.mode} (${recommendation.confidence}): ${recommendation.reason}`,
+        });
+        tui?.appendSystem?.(
+          `Авто-режим: **${recommendation.mode}** — ${recommendation.reason}\n_Отключить: /auto-mode off · вручную: /${recommendation.mode}_`,
+        );
+      }
+    }
+
+    // Persistent /plan mode keeps Plan Mode on for every task until the user leaves it.
+    if (effectiveMode === "plan" || mode === "plan") {
+      planMode.active = true;
+      planMode.goal = task.split(/\r?\n/)[0].slice(0, 120);
+      planMode.enteredAt = planMode.enteredAt ?? new Date().toISOString();
+      planMode.approvedPlan = undefined;
+      effectiveMode = "plan";
+    }
     context.retrievedMemory = undefined;
     if (cogneeMemory.enabled) {
       try {
@@ -698,7 +901,7 @@ async function main(): Promise<void> {
     const approvePlan = async (plan: string): Promise<{ decision: "approve" | "reject" | "revise"; feedback?: string }> => {
       planDocument ??= await createPlanDocument(options.workspace, active.info.id);
       await writePlanDocument(planDocument, plan, "pending");
-      if (options.yes) {
+      if (yolo || options.yes) {
         await writePlanDocument(planDocument, plan, "approved");
         return { decision: "approve" };
       }
@@ -714,7 +917,7 @@ async function main(): Promise<void> {
           decision = feedback ? { decision: "revise", feedback } : { decision: "reject" };
         } else decision = { decision: "reject" };
       } else {
-        throw new Error("План требует интерактивного согласования. Для CI используйте --yes.");
+        throw new Error("План требует интерактивного согласования. Для CI используйте --yes или --yolo.");
       }
       if (decision.feedback) planDocument.feedback.push(decision.feedback);
       await writePlanDocument(planDocument, plan, decision.decision === "approve" ? "approved" : decision.decision === "reject" ? "rejected" : "pending");
@@ -742,105 +945,172 @@ async function main(): Promise<void> {
     }
     if (active.info.title === NEW_SESSION_TITLE) await renameSession(active.info, task.split(/\r?\n/)[0].slice(0, 80));
     const requiresWorkspaceChange = isImplementationRequest(task, history);
-    if (mode === "council-plan") {
-      const mutationsBefore = workspaceMutationCount;
-      const result = await runCouncilPlan({
-        task,
-        config,
-        toolContext: context,
-        history,
-        onEvent: reportEvent,
-        approvePlan,
-        requireWorkspaceChange: requiresWorkspaceChange,
-        getWorkspaceMutationCount: () => workspaceMutationCount,
-      });
-      if (requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
-        throw new Error("Coder совета завершил работу, не изменив файлы проекта.");
+
+    const runInMode = async (activeMode: ExecutionMode): Promise<string> => {
+      if (activeMode === "council-plan") {
+        const mutationsBefore = workspaceMutationCount;
+        const result = await runCouncilPlan({
+          task,
+          config,
+          toolContext: context,
+          history,
+          onEvent: reportEvent,
+          approvePlan,
+          requireWorkspaceChange: requiresWorkspaceChange,
+          getWorkspaceMutationCount: () => workspaceMutationCount,
+        });
+        if (requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
+          throw new Error("Coder совета завершил работу, не изменив файлы проекта.");
+        }
+        const content = `${result.content}\n\nВыбранный план совета:\n${result.plan}\n\nРевью:\n${result.review}`;
+        await appendSessionCouncil(active.info, "plan", [
+          "# Council Plan",
+          ...result.architectPlans.map((plan, index) => `## Architect ${index + 1}\n\n${plan}`),
+          `## Judge Decision\n\n${result.judgment}`,
+          `## Review\n\n${result.review}`,
+        ].join("\n\n"));
+        history = [...history, { role: "user", content: task }, { role: "assistant", content }];
+        await recordSuccessfulTurn(task, content);
+        return content;
       }
-      const content = `${result.content}\n\nВыбранный план совета:\n${result.plan}\n\nРевью:\n${result.review}`;
-      await appendSessionCouncil(active.info, "plan", [
-        "# Council Plan",
-        ...result.architectPlans.map((plan, index) => `## Architect ${index + 1}\n\n${plan}`),
-        `## Judge Decision\n\n${result.judgment}`,
-        `## Review\n\n${result.review}`,
-      ].join("\n\n"));
-      history = [...history, { role: "user", content: task }, { role: "assistant", content }];
-      await recordSuccessfulTurn(task, content);
-      return content;
-    }
-    if (mode === "council-review") {
-      const result = await runCouncilReview({
-        task,
-        config,
-        toolContext: context,
-        history,
-        onEvent: reportEvent,
-      });
-      await appendSessionCouncil(active.info, "review", [
-        result.content,
-        ...result.reviews.map((review, index) => `## Reviewer ${index + 1}\n\n${review}`),
-      ].join("\n\n"));
-      history = [...history, { role: "user", content: task }, { role: "assistant", content: result.content }];
+      if (activeMode === "council-review") {
+        const result = await runCouncilReview({
+          task,
+          config,
+          toolContext: context,
+          history,
+          onEvent: reportEvent,
+        });
+        await appendSessionCouncil(active.info, "review", [
+          result.content,
+          ...result.reviews.map((review, index) => `## Reviewer ${index + 1}\n\n${review}`),
+        ].join("\n\n"));
+        history = [...history, { role: "user", content: task }, { role: "assistant", content: result.content }];
+        await recordSuccessfulTurn(task, result.content);
+        return result.content;
+      }
+      if (activeMode === "team") {
+        const mutationsBefore = workspaceMutationCount;
+        const result = await runTeam({
+          task,
+          config,
+          toolContext: context,
+          history,
+          onEvent: reportEvent,
+          approvePlan,
+          requireWorkspaceChange: requiresWorkspaceChange,
+          getWorkspaceMutationCount: () => workspaceMutationCount,
+        });
+        if (requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
+          throw new Error("Coder команды завершил работу, не изменив файлы проекта.");
+        }
+        const content = `${result.content}\n\nReview:\n${result.review}`;
+        history = [...history, { role: "user", content: task }, { role: "assistant", content }];
+        await recordSuccessfulTurn(task, content);
+        return content;
+      }
+      if (activeMode === "plan") {
+        const planTask = `You are in Plan Mode for this request. Explore the repository with read-only tools, then call submit_plan with a concrete implementation plan (files, steps, risks, verification). Do not implement edits in this mode.
+
+USER REQUEST:
+${task}`;
+        const result = await runAgent({
+          role: "orchestrator",
+          task: planTask,
+          config,
+          toolContext: context,
+          history,
+          onEvent: reportEvent,
+        });
+        let content = result.content;
+        if (planMode.approvedPlan) {
+          content = `${result.content}\n\n---\n\nОдобренный план:\n\n${planMode.approvedPlan}`;
+          // After an approved plan in /plan mode, switch sticky mode so the next message can implement.
+          mode = "orchestrate";
+        }
+        history = result.history;
+        await recordSuccessfulTurn(task, content);
+        return content;
+      }
+      const role = activeMode === "direct" ? "coder" : "orchestrator";
+      const mutationsBefore = workspaceMutationCount;
+      let result = await runAgent({ role, task, config, toolContext: context, history, onEvent: reportEvent });
+
+      // Model asked to switch mode mid-task — restart once in the new pipeline.
+      if (pendingModeRestart && role === "orchestrator") {
+        const restart = pendingModeRestart;
+        pendingModeRestart = undefined;
+        modeSuggestionUsed = true;
+        reportEvent({
+          type: "progress",
+          role: "orchestrator",
+          detail: `restarting task in ${restart.mode}: ${restart.reason}`,
+        });
+        tui?.appendSystem?.(`Перезапуск в режиме **${restart.mode}**: ${restart.reason}`);
+        if (restart.mode === "plan") {
+          planMode.active = true;
+          planMode.goal = task.split(/\r?\n/)[0].slice(0, 120);
+          planMode.enteredAt = new Date().toISOString();
+          planMode.approvedPlan = undefined;
+        }
+        return runInMode(restart.mode);
+      }
+
+      // If the agent entered plan mode and got an approved plan mid-task, allow a follow-up implement pass.
+      if (planMode.approvedPlan && role === "orchestrator" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
+        reportEvent({ type: "progress", role: "orchestrator", detail: "Implementing approved plan after Plan Mode." });
+        const coder = await runAgent({
+          role: "coder",
+          task: `Implement the approved plan for the user request. Follow the plan and verify changes.\n\nUSER REQUEST:\n${task}\n\nAPPROVED PLAN:\n${planMode.approvedPlan}`,
+          config,
+          toolContext: context,
+          history,
+          onEvent: reportEvent,
+        });
+        if (workspaceMutationCount === mutationsBefore) {
+          throw new Error(`Coder завершил работу, не изменив файлы проекта. Ответ модели: ${coder.content.slice(0, 1_000)}`);
+        }
+        history = coder.history;
+        await recordSuccessfulTurn(task, coder.content);
+        return coder.content;
+      }
+      if (role === "coder" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore && !planMode.active) {
+        reportEvent({ type: "progress", role: "coder", detail: "Coder вернул текст без изменений. Повторяю запуск с обязательной записью файлов." });
+        result = await runAgent({
+          role: "coder",
+          task: `${task}\n\nThe previous response did not modify the workspace. Use native workspace tools now. If this model cannot emit native tool calls, return ONLY this fallback JSON (no Markdown): {"jevio_tool_calls":[{"name":"write_file","arguments":{"path":"relative/path","content":"complete file content"}}]}. You may include multiple calls. Jevio will execute them with normal permissions, then you can verify the results.\n\nPREVIOUS RESPONSE:\n${result.content}`,
+          config,
+          toolContext: context,
+          history,
+          onEvent: reportEvent,
+        });
+        if (workspaceMutationCount === mutationsBefore) {
+          throw new Error(`Coder дважды завершил работу, не изменив файлы проекта. Последний ответ: ${result.content.slice(0, 1_000)}`);
+        }
+      }
+      if (role === "orchestrator" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore && !planMode.active) {
+        reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because the workspace was not modified." });
+        const coder = await runAgent({
+          role: "coder",
+          task: `${task}\n\nThe orchestrator returned this context, but no workspace files were changed. Implement the request in the workspace now:\n${result.content}`,
+          config,
+          toolContext: context,
+          history,
+          onEvent: reportEvent,
+        });
+        if (workspaceMutationCount === mutationsBefore) {
+          throw new Error(`Coder завершил работу, не изменив файлы проекта. Ответ модели: ${coder.content.slice(0, 1_000)}`);
+        }
+        history = coder.history;
+        await recordSuccessfulTurn(task, coder.content);
+        return coder.content;
+      }
+      history = result.history;
       await recordSuccessfulTurn(task, result.content);
       return result.content;
-    }
-    if (mode === "team") {
-      const mutationsBefore = workspaceMutationCount;
-      const result = await runTeam({
-        task,
-        config,
-        toolContext: context,
-        history,
-        onEvent: reportEvent,
-        approvePlan,
-        requireWorkspaceChange: requiresWorkspaceChange,
-        getWorkspaceMutationCount: () => workspaceMutationCount,
-      });
-      if (requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
-        throw new Error("Coder команды завершил работу, не изменив файлы проекта.");
-      }
-      const content = `${result.content}\n\nReview:\n${result.review}`;
-      history = [...history, { role: "user", content: task }, { role: "assistant", content }];
-      await recordSuccessfulTurn(task, content);
-      return content;
-    }
-    const role = mode === "direct" ? "coder" : "orchestrator";
-    const mutationsBefore = workspaceMutationCount;
-    let result = await runAgent({ role, task, config, toolContext: context, history, onEvent: reportEvent });
-    if (role === "coder" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
-      reportEvent({ type: "progress", role: "coder", detail: "Coder вернул текст без изменений. Повторяю запуск с обязательной записью файлов." });
-      result = await runAgent({
-        role: "coder",
-        task: `${task}\n\nThe previous response did not modify the workspace. Use native workspace tools now. If this model cannot emit native tool calls, return ONLY this fallback JSON (no Markdown): {"jevio_tool_calls":[{"name":"write_file","arguments":{"path":"relative/path","content":"complete file content"}}]}. You may include multiple calls. Jevio will execute them with normal permissions, then you can verify the results.\n\nPREVIOUS RESPONSE:\n${result.content}`,
-        config,
-        toolContext: context,
-        history,
-        onEvent: reportEvent,
-      });
-      if (workspaceMutationCount === mutationsBefore) {
-        throw new Error(`Coder дважды завершил работу, не изменив файлы проекта. Последний ответ: ${result.content.slice(0, 1_000)}`);
-      }
-    }
-    if (role === "orchestrator" && requiresWorkspaceChange && workspaceMutationCount === mutationsBefore) {
-      reportEvent({ type: "progress", role: "orchestrator", detail: "Routing implementation to coder because the workspace was not modified." });
-      const coder = await runAgent({
-        role: "coder",
-        task: `${task}\n\nThe orchestrator returned this context, but no workspace files were changed. Implement the request in the workspace now:\n${result.content}`,
-        config,
-        toolContext: context,
-        history,
-        onEvent: reportEvent,
-      });
-      if (workspaceMutationCount === mutationsBefore) {
-        throw new Error(`Coder завершил работу, не изменив файлы проекта. Ответ модели: ${coder.content.slice(0, 1_000)}`);
-      }
-      history = coder.history;
-      await recordSuccessfulTurn(task, coder.content);
-      return coder.content;
-    }
-    history = result.history;
-    await recordSuccessfulTurn(task, result.content);
-    return result.content;
+    };
+
+    return runInMode(effectiveMode);
   };
 
   const resumeSelectedSession = async (selected: LoadedSession): Promise<string> => {
@@ -877,11 +1147,13 @@ async function main(): Promise<void> {
     const task = answer.trim();
     if (!task) return {};
     const [rawCommand, ...parts] = task.split(/\s+/);
-    const command = rawCommand.toLowerCase();
+    const raw = rawCommand.toLowerCase();
+    const resolved = resolveSlashCommand(raw);
+    const command = resolved ? `/${resolved.name}` : raw;
     const argument = parts.join(" ").trim();
 
-    if (["/exit", "/quit", "/q"].includes(command)) return { exit: true };
-    if (["/help", "/h", "/?"].includes(command)) return { output: INTERACTIVE_HELP };
+    if (command === "/exit") return { exit: true };
+    if (command === "/help") return { output: formatInteractiveHelp() };
     if (command === "/skills") {
       return {
         output: context.skills.length
@@ -893,43 +1165,211 @@ async function main(): Promise<void> {
     if (command === "/fix-review") return { output: await fixLatestCouncilReview() };
     if (command === "/team") {
       mode = "team";
+      planMode.active = false;
       return { output: "Mode: team (architect -> coder -> reviewer)." };
     }
     if (command === "/council-plan") {
       mode = "council-plan";
+      planMode.active = false;
       return { output: "Режим совета планирования: 3 architect -> judge -> coder -> reviewer." };
     }
     if (command === "/council-review") {
       mode = "council-review";
+      planMode.active = false;
       return { output: "Режим совета ревью: security/correctness/tests reviewers -> judge." };
+    }
+    if (command === "/plan") {
+      mode = "plan";
+      planMode.active = true;
+      planMode.enteredAt = new Date().toISOString();
+      planMode.approvedPlan = undefined;
+      planMode.goal = argument || undefined;
+      return {
+        output: argument
+          ? `Режим Plan Mode: следующее сообщение будет только планированием (цель: ${argument}). Write tools заблокированы до submit_plan.`
+          : "Режим Plan Mode: исследование и submit_plan без правок. После approve следующего плана режим вернётся к orchestrate.",
+      };
     }
     if (command === "/direct") {
       mode = "direct";
+      planMode.active = false;
       return { output: "Mode: direct (coder)." };
     }
     if (command === "/orchestrate") {
       mode = "orchestrate";
+      planMode.active = false;
       return { output: "Mode: orchestrate." };
     }
-    if (command === "/provider") {
-      if (!argument) return { output: `Провайдер: ${currentProvider()}. Используйте /provider <имя>, чтобы сменить его для этой сессии.` };
-      return { output: selectProvider(parts[0] ?? "") };
+    if (command === "/ideas") {
+      const countMatch = /(?:^|\s)count=(\d{1,2})(?:\s|$)/i.exec(argument);
+      const count = countMatch ? Number(countMatch[1]) : undefined;
+      const topic = argument.replace(/(?:^|\s)count=\d{1,2}(?:\s|$)/gi, " ").trim() || undefined;
+      try {
+        reportEvent({ type: "thinking", role: "architect", detail: "idea generator" });
+        const output = await generateIdeas({
+          workspace: options.workspace,
+          config,
+          toolContext: context,
+          topic,
+          count,
+          onEvent: reportEvent,
+        });
+        return { output };
+      } catch (error) {
+        return { output: `Ideas failed: ${(error as Error).message}` };
+      }
     }
-    if (["/new", "/clear", "/reset"].includes(command)) {
+    if (command === "/kairos") {
+      const sub = (parts[0] ?? "").toLowerCase();
+      try {
+        reportEvent({ type: "thinking", role: "orchestrator", detail: "kairos observation" });
+        const result = await runKairos({
+          workspace: options.workspace,
+          config,
+          toolContext: context,
+          history,
+          synthesize: sub === "full",
+          onEvent: reportEvent,
+        });
+        if (sub === "status") {
+          return {
+            output: [
+              result.summary,
+              `signals: ${result.signals.length}`,
+              `uncommitted: ${result.raw.uncommittedCount}`,
+              `memory: ${result.raw.memoryCharacters} chars`,
+              `dream queue: ${result.raw.pendingDreamSessions} sessions`,
+              `at: ${result.observedAt}`,
+            ].join("\n"),
+          };
+        }
+        return { output: formatKairosReport(result, result.synthesis) };
+      } catch (error) {
+        return { output: `KAIROS failed: ${(error as Error).message}` };
+      }
+    }
+    if (command === "/provider") {
+      if (!argument) {
+        const lines = [
+          `Текущий: ${currentProvider()} / ${currentModel()}`,
+          "",
+          "Провайдеры:",
+          ...Object.entries(config.providers).map(([name, provider]) => {
+            const mark = name === currentProvider() || (currentProvider() === "mixed" && name === config.defaultProvider) ? "*" : " ";
+            return `  ${mark} ${name}  ${provider.baseUrl}  default:${provider.defaultModel ?? "—"}`;
+          }),
+          "",
+          "Смена: /provider <имя>  ·  затем /models",
+        ];
+        return { output: lines.join("\n") };
+      }
+      const applyModel = parts[1]?.toLowerCase() === "model" || parts[1]?.toLowerCase() === "with-model";
+      return { output: await selectProvider(parts[0] ?? "", applyModel) };
+    }
+    if (command === "/auto-mode" || command === "/autoroute") {
+      const sub = (parts[0] ?? "").toLowerCase();
+      if (sub === "on" || sub === "1" || sub === "true") autoRoute = true;
+      else if (sub === "off" || sub === "0" || sub === "false") autoRoute = false;
+      else if (sub === "status") {
+        return {
+          output: [
+            `auto-mode: ${autoRoute ? "ON" : "OFF"}`,
+            `sticky mode: ${mode}`,
+            autoRoute
+              ? "Пока sticky = orchestrate, host сам выбирает team/council/plan/direct под задачу."
+              : "Только ручные /team /council-plan /plan /direct и suggest_mode с подтверждением.",
+          ].join("\n"),
+        };
+      } else {
+        autoRoute = !autoRoute;
+      }
+      return {
+        output: autoRoute
+          ? "auto-mode ON — Fuse сам заходит в team/council/plan при подходящих задачах. /auto-mode off чтобы выключить."
+          : "auto-mode OFF — режимы только вручную (/team, /council-plan, …) или через confirm suggest_mode.",
+      };
+    }
+    if (command === "/yolo") {
+      const sub = (parts[0] ?? "").toLowerCase();
+      if (sub === "on" || sub === "1" || sub === "true") yolo = true;
+      else if (sub === "off" || sub === "0" || sub === "false") yolo = false;
+      else if (sub === "status") {
+        return {
+          output: [
+            `YOLO: ${yolo ? "ON" : "OFF"}`,
+            `writes: ${context.autoApproveWrites ? "auto" : "ask"}`,
+            `shell: ${context.autoApproveShell ? "auto" : "ask"} (${context.shellMode ?? "full"})`,
+            `plugins: ${context.autoApprovePlugins ? "auto" : "ask"}`,
+            `plans: ${yolo ? "auto-approve" : "ask"}`,
+          ].join("\n"),
+        };
+      } else {
+        yolo = !yolo;
+      }
+      applyYoloPermissions();
+      tui?.refreshHeader();
+      return {
+        output: yolo
+          ? "YOLO ON — auto-approve writes, shell (full), plugins и plans. /yolo off чтобы выключить."
+          : "YOLO OFF — снова спрашиваю подтверждения. /yolo on чтобы включить.",
+      };
+    }
+    if (command === "/models") {
+      const sub = (parts[0] ?? "").trim();
+      if (!sub || sub === "list") {
+        // TUI opens the picker; text mode prints the list.
+        if (useTuiPicker) return { output: "Выберите модель в списке." };
+        try {
+          const listed = await listModelsForProvider();
+          const body = listed.models.length
+            ? listed.models.map((model) => `  ${model === listed.current ? "*" : " "} ${model}`).join("\n")
+            : "  (пусто)";
+          return {
+            output: [
+              `Провайдер: ${listed.provider}`,
+              `Текущая: ${listed.current}`,
+              "",
+              "Модели:",
+              body,
+              listed.detail ? `\n${listed.detail}` : "",
+              "",
+              "Смена: /models <id>",
+            ].filter(Boolean).join("\n"),
+          };
+        } catch (error) {
+          return { output: `Models failed: ${(error as Error).message}` };
+        }
+      }
+      if (sub === "status") return { output: modelsStatusText() };
+      // /models <provider> <model-id> OR /models <model-id with spaces joined>
+      if (parts.length >= 2 && config.providers[sub]) {
+        return { output: await selectModel(parts.slice(1).join(" "), sub) };
+      }
+      return { output: await selectModel(parts.join(" ")) };
+    }
+    if (command === "/new") {
       await discardEmptySession(active.info);
       active = { info: await createSession(options.workspace), history: [], todos: [] };
       history = [];
       tui?.setTodos([]);
       return { output: `Сессия ${active.info.id} создана` };
     }
-    if (["/sessions", "/session", "/resume"].includes(command)) {
+    // /clear is TUI-only (screen wipe). Outside TUI treat as /new for convenience.
+    if (command === "/clear") {
+      if (useTuiPicker) return { output: "Экран очищен." };
+      await discardEmptySession(active.info);
+      active = { info: await createSession(options.workspace), history: [], todos: [] };
+      history = [];
+      return { output: `Сессия ${active.info.id} создана (в TUI /clear только чистит экран; /new — новая сессия).` };
+    }
+    if (command === "/sessions" || command === "/resume") {
       if (!argument && useTuiPicker) return { output: "Выберите сессию в списке." };
       const selected = argument
         ? await loadSession(options.workspace, argument)
         : await pickSession(options.workspace, terminal);
       return selected ? { output: await resumeSelectedSession(selected) } : {};
     }
-    if (["/title", "/rename"].includes(command)) {
+    if (command === "/title") {
       if (!argument) return { output: active.info.title };
       await renameSession(active.info, argument);
       return { output: `Title: ${active.info.title}` };
@@ -940,7 +1380,7 @@ async function main(): Promise<void> {
       tui?.setTodos(active.todos);
       return { output: `Forked into ${active.info.id}` };
     }
-    if (["/export-md", "/export"].includes(command)) {
+    if (command === "/export-md") {
       const destination = argument || path.join(options.workspace, `jevio-export-${active.info.id.slice(0, 8)}.md`);
       return { output: `Exported to ${await exportSession(active.info, destination)}` };
     }
@@ -1024,6 +1464,45 @@ async function main(): Promise<void> {
       }
       return { output: context.projectMemory?.trim() || "Память проекта пуста." };
     }
+    if (command === "/dream") {
+      const sub = (parts[0] ?? "").toLowerCase();
+      if (sub === "status") {
+        const status = await dreamStatus(options.workspace);
+        return {
+          output: [
+            status.detail,
+            `Последний сон: ${status.lastDreamedAt ?? "никогда"}`,
+            `Отслеживается сессий: ${status.sessionsTracked}`,
+            `В очереди: ${status.pendingSessions} сессий / ${status.pendingMessages} сообщений`,
+            `MEMORY.md: ${status.memoryCharacters} символов`,
+          ].join("\n"),
+        };
+      }
+      try {
+        reportEvent({ type: "thinking", role: "compactor", detail: "starting dream consolidation" });
+        const result = await runDream({
+          workspace: options.workspace,
+          config,
+          toolContext: context,
+          force: sub === "force",
+          onEvent: reportEvent,
+        });
+        context.projectMemory = await loadProjectMemory(options.workspace);
+        const warning = await rememberCognee(result.memory, "MEMORY.md");
+        return {
+          output: [
+            "💤 Fuse dream complete.",
+            `Sessions: ${result.sessionsProcessed} · signals: ${result.signalCount} · new messages: ${result.newMessages}`,
+            `MEMORY.md: ${result.previousMemoryCharacters} → ${result.memoryCharacters} chars`,
+            `Wrote: ${result.memoryPath}`,
+            `At: ${result.dreamedAt}`,
+            warning ? warning : cogneeMemory.enabled ? "Cognee synchronized." : "Cognee disabled — Markdown only.",
+          ].join("\n"),
+        };
+      } catch (error) {
+        return { output: `Dream failed: ${(error as Error).message}` };
+      }
+    }
     return { output: await executeTaskWithFailureRecord(task) };
   };
 
@@ -1055,15 +1534,44 @@ async function main(): Promise<void> {
         }),
         getMode: () => mode,
         getProvider: currentProvider,
-        listProviders: async () => Object.entries(config.providers).map(([name, provider]) => ({
-          name,
-          baseUrl: provider.baseUrl,
-          apiKeyEnv: provider.apiKeyEnv,
-          defaultModel: provider.defaultModel,
-          transport: provider.transport,
-          toolMode: provider.toolMode,
-        })),
-        selectProvider: async (name) => selectProvider(name),
+        getModel: currentModel,
+        getYolo: () => yolo,
+        listProviders: async () => {
+          const entries = Object.entries(config.providers);
+          return Promise.all(entries.map(async ([name, provider]) => {
+            let reachable: boolean | undefined;
+            let modelCount: number | undefined;
+            try {
+              const models = await listProviderModels(provider.baseUrl, {
+                apiKey: resolveProviderApiKey(name),
+                timeoutMs: 1_500,
+              });
+              reachable = true;
+              modelCount = models.length;
+            } catch {
+              reachable = false;
+            }
+            const activeModels = [...new Set(
+              Object.values(config.roles)
+                .filter((role) => (role.provider ?? config.defaultProvider) === name)
+                .map((role) => role.model),
+            )];
+            return {
+              name,
+              baseUrl: provider.baseUrl,
+              apiKeyEnv: provider.apiKeyEnv,
+              defaultModel: provider.defaultModel,
+              transport: provider.transport,
+              toolMode: provider.toolMode,
+              reachable,
+              modelCount,
+              activeModel: activeModels.length === 1 ? activeModels[0] : activeModels.length ? "mixed" : provider.defaultModel,
+            };
+          }));
+        },
+        selectProvider: async (name) => selectProvider(name, false),
+        listModels: async (provider) => listModelsForProvider(provider),
+        selectModel: async (model) => selectModel(model),
         addProvider,
         listRoleConfigs: async () => (Object.entries(config.roles) as Array<[RoleName, typeof config.roles[RoleName]]>).map(([role, settings]) => ({
           role,

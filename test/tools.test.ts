@@ -124,18 +124,49 @@ test("agents can ask the interactive user a structured question", async () => {
   assert.deepEqual(todos, [{ content: "Inspect files", status: "in_progress" }]);
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "report_progress"));
   assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "web_search"));
+  assert.ok(toolsForRole("coder").some((tool) => tool.function.name === "web_fetch"));
 });
 
-test("web search parses public RSS results", async (t) => {
+test("web_fetch tool rejects private hosts without network", async () => {
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+  };
+  assert.match(
+    await executeTool("web_fetch", { url: "http://127.0.0.1/secret" }, context),
+    /blocked|Tool error/i,
+  );
+});
+
+test("web_search tool uses multi-backend searchWeb", async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async () => new Response(`<?xml version="1.0"?><rss><channel>
-    <item><title><![CDATA[Official docs]]></title><link>https://example.test/docs</link><description><![CDATA[<b>Useful</b> reference]]></description></item>
-  </channel></rss>`);
-  const results = await searchWeb("example", 5);
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("html.duckduckgo.com")) {
+      return new Response(`
+        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.test%2Fdocs">Official docs</a>
+        <a class="result__snippet">Useful reference</a>
+      `);
+    }
+    return new Response("{}", { status: 200 });
+  };
+  const context: ToolContext = {
+    workspace: process.cwd(),
+    skills: [],
+    autoApproveWrites: false,
+    autoApproveShell: false,
+    confirm: async () => false,
+  };
+  const results = await executeTool("web_search", { query: "example", max_results: 3 }, context);
   assert.match(results, /Official docs/);
   assert.match(results, /https:\/\/example\.test\/docs/);
   assert.match(results, /Useful reference/);
+  // Legacy helper export still works for callers/tests.
+  assert.match(await searchWeb("example", 3), /Official docs/);
 });
 
 test("root agent can delegate into an isolated specialist", async (t) => {
@@ -156,22 +187,25 @@ test("root agent can delegate into an isolated specialist", async (t) => {
 
 test("orchestrator can suggest a persistent execution mode", async () => {
   let suggested = "";
+  let applyNow: boolean | undefined;
   const context: ToolContext = {
     workspace: process.cwd(),
     skills: [],
     autoApproveWrites: false,
     autoApproveShell: false,
     confirm: async () => false,
-    suggestMode: async (mode, reason) => {
+    suggestMode: async (mode, reason, options) => {
       suggested = `${mode}: ${reason}`;
+      applyNow = options?.applyNow;
       return true;
     },
   };
   assert.match(await executeTool("suggest_mode", {
     mode: "council-plan",
     reason: "The change crosses several architectural boundaries.",
-  }, context), /accepted/);
+  }, context), /accepted for this task/);
   assert.equal(suggested, "council-plan: The change crosses several architectural boundaries.");
+  assert.equal(applyNow, true);
   assert.ok(toolsForRole("orchestrator").some((tool) => tool.function.name === "suggest_mode"));
   assert.ok(!toolsForRole("coder").some((tool) => tool.function.name === "suggest_mode"));
 });

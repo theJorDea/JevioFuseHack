@@ -1,6 +1,14 @@
 export type RoleName = "orchestrator" | "coder" | "architect" | "reviewer" | "judge" | "compactor";
 export type SpecialistRoleName = "architect" | "coder" | "reviewer";
-export type ExecutionMode = "team" | "direct" | "orchestrate" | "council-plan" | "council-review";
+export type ExecutionMode = "team" | "direct" | "orchestrate" | "council-plan" | "council-review" | "plan";
+
+/** Host-side plan mode: read-only exploration until a plan is approved. */
+export interface PlanModeState {
+  active: boolean;
+  goal?: string;
+  approvedPlan?: string;
+  enteredAt?: string;
+}
 
 export interface ProviderConfig {
   baseUrl: string;
@@ -220,7 +228,20 @@ export interface ToolContext {
   recordVerification?: (record: VerificationRecord) => void;
   onWorkspaceChange?: () => void;
   delegate?: (role: SpecialistRoleName, task: string) => Promise<string>;
-  suggestMode?: (mode: ExecutionMode, reason: string) => Promise<boolean>;
+  /**
+   * Ask host to switch execution mode.
+   * Return true if accepted. Host may restart the current task when applyNow is true.
+   */
+  suggestMode?: (
+    mode: ExecutionMode,
+    reason: string,
+    options?: { applyNow?: boolean },
+  ) => Promise<boolean>;
+  /** Live plan-mode flag; mutations are blocked while active. */
+  planMode?: PlanModeState;
+  enterPlanMode?: (goal?: string) => Promise<string>;
+  exitPlanMode?: (reason?: string) => Promise<string>;
+  submitPlan?: (plan: string) => Promise<string>;
   plugins?: PluginToolRegistry;
 }
 

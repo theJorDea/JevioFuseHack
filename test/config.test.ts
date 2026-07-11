@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { addProviderConfig, loadConfig, saveProviderSecret, setRoleProviderConfig } from "../src/config.ts";
+import { addProviderConfig, loadConfig, saveProviderSecret, setAllRolesModelConfig, setDefaultProviderConfig, setRoleProviderConfig } from "../src/config.ts";
 
 test("loads partial config, expands environment, and fills role defaults", async (t) => {
   const workspace = path.join(tmpdir(), `.tmp-test-config-${process.pid}-${Date.now()}`);
@@ -159,4 +159,51 @@ test("assigns a provider and model to one role without losing provider headers",
   };
   assert.deepEqual(saved.roles.reviewer, { provider: "cloud", model: "cloud-review" });
   assert.deepEqual(saved.providers.cloud.headers, { "x-client": "fuse" });
+});
+
+test("setDefaultProviderConfig switches provider and can apply default model", async (t) => {
+  const workspace = path.join(tmpdir(), `.tmp-test-config-provider-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    defaultProvider: "a",
+    providers: {
+      a: { baseUrl: "http://localhost:1/v1", defaultModel: "model-a" },
+      b: { baseUrl: "http://localhost:2/v1", defaultModel: "model-b" },
+    },
+    roles: {
+      coder: { provider: "a", model: "model-a" },
+      orchestrator: { provider: "a", model: "model-a" },
+    },
+  }));
+  await setDefaultProviderConfig(workspace, undefined, "b");
+  let loaded = await loadConfig(workspace);
+  assert.equal(loaded.defaultProvider, "b");
+  assert.equal(loaded.roles.coder.provider, "b");
+  assert.equal(loaded.roles.coder.model, "model-a"); // model kept
+  await setDefaultProviderConfig(workspace, undefined, "b", { applyDefaultModel: true });
+  loaded = await loadConfig(workspace);
+  assert.equal(loaded.roles.coder.model, "model-b");
+});
+
+test("setAllRolesModelConfig applies one model to every role", async (t) => {
+  const workspace = path.join(tmpdir(), `.tmp-test-config-models-${process.pid}-${Date.now()}`);
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  await mkdir(workspace, { recursive: true });
+  await writeFile(path.join(workspace, "jevio.config.json"), JSON.stringify({
+    defaultProvider: "custom",
+    providers: {
+      custom: { baseUrl: "http://localhost:9999/v1", defaultModel: "old-model" },
+    },
+    roles: {
+      coder: { provider: "custom", model: "old-model" },
+    },
+  }));
+  await setAllRolesModelConfig(workspace, undefined, "new-model", "custom");
+  const loaded = await loadConfig(workspace);
+  assert.equal(loaded.providers.custom.defaultModel, "new-model");
+  for (const role of Object.values(loaded.roles)) {
+    assert.equal(role.model, "new-model");
+    assert.equal(role.provider, "custom");
+  }
 });
