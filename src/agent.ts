@@ -202,6 +202,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
   const requestTools = usesTextTools ? [] : tools;
   const maxTurns = options.maxTurns ?? options.config.agent.maxTurns;
   let webSearchCalls = 0;
+  let textToolCallsExecuted = 0;
+  let emptyTextContinuations = 0;
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     options.onEvent?.({ type: "thinking", role: options.role, detail: `model turn ${turn}` });
@@ -236,7 +238,20 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
     }
 
     if (!toolCalls.length) {
-      const content = response.content.trim() || "The model returned an empty response.";
+      const content = response.content.trim();
+      if (usesTextTools && !content && textToolCallsExecuted > 0 && emptyTextContinuations < 3) {
+        emptyTextContinuations += 1;
+        messages.push({
+          role: "user",
+          content: "The previous text-protocol tool completed, but your response was empty. Continue the task now: return the next single tool call, or a concise final summary only when the whole request is complete.",
+        });
+        continue;
+      }
+      if (!content) {
+        throw new Error(usesTextTools && textToolCallsExecuted > 0
+          ? `${options.role} model repeatedly returned an empty response after tool execution.`
+          : `${options.role} model returned an empty response.`);
+      }
       return {
         content,
         turns: turn,
@@ -245,6 +260,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult & { h
       };
     }
 
+    if (fallbackCalls.length) {
+      textToolCallsExecuted += fallbackCalls.length;
+      emptyTextContinuations = 0;
+    }
     for (const call of toolCalls) {
       options.onEvent?.({ type: "tool", role: options.role, detail: `${call.name} (running)` });
       let output: string;

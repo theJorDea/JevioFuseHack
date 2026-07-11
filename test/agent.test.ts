@@ -68,7 +68,11 @@ test("text tool mode omits native tools and executes the fallback protocol", asy
     calls += 1;
     const content = calls === 1
       ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Пишу файлы" } }] })
-      : "Готово";
+      : calls === 2
+        ? ""
+        : calls === 3
+          ? JSON.stringify({ jevio_tool_calls: [{ name: "report_progress", arguments: { message: "Продолжаю" } }] })
+          : "Готово";
     return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }), {
       headers: { "content-type": "application/json" },
     });
@@ -86,11 +90,12 @@ test("text tool mode omits native tools and executes the fallback protocol", asy
   });
 
   assert.equal(result.content, "Готово");
-  assert.equal(progress, "Пишу файлы");
-  assert.equal(requestBodies.length, 2);
+  assert.equal(progress, "Продолжаю");
+  assert.equal(requestBodies.length, 4);
   assert.equal(requestBodies[0].tools, undefined);
   assert.match(JSON.stringify(requestBodies[0].messages), /jevio_tool_calls/);
   assert.match(JSON.stringify(requestBodies[0].messages), /jevio_write/);
+  assert.match(JSON.stringify(requestBodies[2].messages), /previous text-protocol tool completed/);
 });
 
 test("text tool instructions are also supplied to the orchestrator", async (t) => {
