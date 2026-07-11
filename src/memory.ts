@@ -111,12 +111,15 @@ export class CogneeMemory {
     if (key) {
       headers.set(this.config.authMode === "bearer" ? "authorization" : "x-api-key", this.config.authMode === "bearer" ? `Bearer ${key}` : key);
     }
+    const tenantId = this.config.tenantIdEnv ? process.env[this.config.tenantIdEnv]?.trim() : undefined;
+    if (tenantId) headers.set("x-tenant-id", tenantId);
     return headers;
   }
 
   private configurationIssue(): string | undefined {
     if (this.config.baseUrlEnv && !process.env[this.config.baseUrlEnv]?.trim()) return `missing ${this.config.baseUrlEnv}`;
     if (this.config.apiKeyEnv && !process.env[this.config.apiKeyEnv]) return `missing ${this.config.apiKeyEnv}`;
+    if (this.config.tenantIdEnv && !process.env[this.config.tenantIdEnv]?.trim()) return `missing ${this.config.tenantIdEnv}`;
     return undefined;
   }
 

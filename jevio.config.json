@@ -5,6 +5,7 @@
       "baseUrl": "http://localhost:8000",
       "baseUrlEnv": "COGNEE_BASE_URL",
       "apiKeyEnv": "COGNEE_API_KEY",
+      "tenantIdEnv": "COGNEE_TENANT_ID",
       "authMode": "x-api-key",
       "dataset": "agent_sessions",
       "timeoutMs": 60000,

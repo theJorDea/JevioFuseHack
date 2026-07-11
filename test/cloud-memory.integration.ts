@@ -36,8 +36,8 @@ async function waitForRecall(
 }
 
 test("Cognee Cloud supports permanent and session-aware Jevio memory", { timeout: 420_000 }, async (t) => {
-  if (!process.env.COGNEE_BASE_URL || !process.env.COGNEE_API_KEY) {
-    t.skip("COGNEE_BASE_URL and COGNEE_API_KEY are required");
+  if (!process.env.COGNEE_BASE_URL || !process.env.COGNEE_API_KEY || !process.env.COGNEE_TENANT_ID) {
+    t.skip("COGNEE_BASE_URL, COGNEE_API_KEY, and COGNEE_TENANT_ID are required");
     return;
   }
 
@@ -45,6 +45,7 @@ test("Cognee Cloud supports permanent and session-aware Jevio memory", { timeout
   config.enabled = true;
   config.baseUrlEnv = "COGNEE_BASE_URL";
   config.apiKeyEnv = "COGNEE_API_KEY";
+  config.tenantIdEnv = "COGNEE_TENANT_ID";
   config.authMode = "x-api-key";
   config.dataset = `jevio-integration-${Date.now()}`;
   config.timeoutMs = 60_000;

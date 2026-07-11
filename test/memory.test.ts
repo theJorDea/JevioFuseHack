@@ -14,8 +14,10 @@ function config() {
 test("Cognee recall is dataset-scoped, authenticated, deduplicated, and bounded", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   process.env.COGNEE_TEST_KEY = "secret";
+  process.env.COGNEE_TEST_TENANT = "tenant-1";
   const options = config();
   options.apiKeyEnv = "COGNEE_TEST_KEY";
+  options.tenantIdEnv = "COGNEE_TEST_TENANT";
   options.maxResults = 2;
   options.maxContextCharacters = 100;
   const memory = new CogneeMemory(options, process.cwd(), async (input, init) => {
@@ -24,10 +26,12 @@ test("Cognee recall is dataset-scoped, authenticated, deduplicated, and bounded"
   });
   const result = await memory.recall("fix parser", "session-1");
   delete process.env.COGNEE_TEST_KEY;
+  delete process.env.COGNEE_TEST_TENANT;
 
   assert.equal(result, "first\n\n---\n\nsecond");
   assert.equal(requests[0].url, "http://localhost:8000/api/v1/recall");
   assert.equal(new Headers(requests[0].init?.headers).get("x-api-key"), "secret");
+  assert.equal(new Headers(requests[0].init?.headers).get("x-tenant-id"), "tenant-1");
   assert.deepEqual(JSON.parse(String(requests[0].init?.body)), {
     query: "fix parser",
     top_k: 2,
@@ -241,6 +245,18 @@ test("Cognee status reports a missing configured base URL environment variable w
     return new Response("{}", { status: 200 });
   });
   assert.match((await memory.status()).detail, /missing MISSING_COGNEE_BASE_URL/);
+  assert.equal(called, false);
+});
+
+test("Cognee status reports a missing configured tenant ID without a request", async () => {
+  const options = config();
+  options.tenantIdEnv = "MISSING_COGNEE_TENANT_ID";
+  let called = false;
+  const memory = new CogneeMemory(options, process.cwd(), async () => {
+    called = true;
+    return new Response("{}", { status: 200 });
+  });
+  assert.match((await memory.status()).detail, /missing MISSING_COGNEE_TENANT_ID/);
   assert.equal(called, false);
 });
 

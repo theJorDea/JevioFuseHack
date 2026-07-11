@@ -57,6 +57,7 @@ export interface CogneeMemoryConfig {
  baseUrl: string;
  baseUrlEnv?: string;
  apiKeyEnv?: string;
+ tenantIdEnv?: string;
  authMode: "x-api-key" | "bearer";
  dataset?: string;
  timeoutMs: number;

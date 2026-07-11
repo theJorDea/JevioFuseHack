@@ -103,6 +103,9 @@ function mergeConfig(input: PartialJevioConfig): JevioConfig {
   if (cognee.baseUrlEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cognee.baseUrlEnv)) {
     throw new Error("memory.cognee.baseUrlEnv must be an environment variable name.");
   }
+  if (cognee.tenantIdEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cognee.tenantIdEnv)) {
+    throw new Error("memory.cognee.tenantIdEnv must be an environment variable name.");
+  }
   if (!Number.isFinite(cognee.timeoutMs) || cognee.timeoutMs <= 0) throw new Error("memory.cognee.timeoutMs must be positive.");
   if (!Number.isFinite(cognee.maxResults) || cognee.maxResults <= 0) throw new Error("memory.cognee.maxResults must be positive.");
   if (!Number.isFinite(cognee.maxContextCharacters) || cognee.maxContextCharacters <= 0) throw new Error("memory.cognee.maxContextCharacters must be positive.");
