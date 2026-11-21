@@ -13,7 +13,7 @@ test('model bundle has only original work and task; base fails, historical fix p
 const parserId = 'text-tool-line-continuation';
 const parserGold = new URL('../benchmark/evaluation/text-tool-line-continuation/gold-parser.ts.fixture',import.meta.url);
 test('parser input is the base excerpt only; confirm historical outcomes and both line endings',async()=>{
-  assert.deepEqual(runnableCaseIds,['task-intent-questions',parserId,'session-picker-focus','idle-loader-status','kimi-temperature']);
+  assert.ok(runnableCaseIds.includes(parserId));
   const packet = await modelInput(parserId);
   assert.deepEqual(Object.keys(packet).sort(),['files','task']);
   assert.deepEqual(Object.keys(packet.files),['src/agent.ts']);

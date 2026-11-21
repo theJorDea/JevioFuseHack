@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { modelInput, verifySource, runnableCaseIds, loaderLifecycleExcerpt } from './eval-candidate.mjs';
+import { modelInput, verifySource, runnableCaseIds, projectFixture } from './eval-candidate.mjs';
 import { makeEvaluationPlan, digest } from '../src/eval-plan.ts';
 import { runAttempt } from './eval-attempt.mjs';
 import { reviewArtifacts } from '../src/eval-review.ts';
@@ -18,7 +18,7 @@ export async function rehearse(out) {
     const {default:spec} = await import(`../benchmark/evaluation/${id}/case.mjs`);
     const gold = await readFile(new URL(`../benchmark/evaluation/${id}/${spec.files.gold[0][1]}`,import.meta.url),'utf8');
     if(digest(gold)!==spec.files.gold[0][2]) throw Error('Gold source mismatch');
-    inputs.set(id,{task,packet:await modelInput(id),gold:id==='idle-loader-status'?loaderLifecycleExcerpt(gold):gold});
+    inputs.set(id,{task,packet:await modelInput(id),gold:projectFixture(id,gold,'gold')});
   }
   const tasks = [...inputs.values()].map(({task})=>({id:task.taskId,caseSha256:task.caseSha256}));
   const packetHashes = Object.fromEntries([...inputs].map(([id,{packet}])=>[id,digest(JSON.stringify(packet))]));

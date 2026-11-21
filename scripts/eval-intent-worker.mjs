@@ -4,6 +4,7 @@ import { getQuickJS } from 'quickjs-emscripten';
 const chunks = []; let size = 0;
 for await (const b of process.stdin) { if ((size += b.length) > 256 * 1024) throw Error('Input limit'); chunks.push(b); }
 const { source, input, taskId } = JSON.parse(Buffer.concat(chunks));
+const extension = (await import('./eval-adapters/registry.mjs')).adapters.get(taskId);
 const parser = taskId === 'text-tool-line-continuation';
 const picker = taskId === 'session-picker-focus';
 const kimi = taskId === 'kimi-temperature';
@@ -88,7 +89,7 @@ const kimiAdapter = `(() => {
     return '[['+wire+'],['+replies+'],'+count+']';
   };
 })()`;
-const adapter = kimi ? kimiAdapter : loader ? loaderAdapter : picker ? pickerAdapter : parser ? `((isArray, allowed) => (fn, input) => {
+const adapter = extension ? extension.adapter : kimi ? kimiAdapter : loader ? loaderAdapter : picker ? pickerAdapter : parser ? `((isArray, allowed) => (fn, input) => {
   const calls = fn(input, allowed);
   if (!isArray(calls)) return null;
   if (calls.length !== 1) return 'count-mismatch';
@@ -105,17 +106,17 @@ let observed = null;
 try {
   const call = take(vm.evalCode(adapter, 'observation.js', {type:'global'}));
   try {
-    const js = stripTypeScriptTypes(loader ? `export function makeView(Loader,cyan,dim,red){return class {\n${source}\n}}` : picker ? `export function makePicker(SelectList,selectTheme,modalSurface,Text,boldCyan,dim){return class {\n${source}\n}}` : source);
+    const js = stripTypeScriptTypes(extension ? extension.wrap(source) : loader ? `export function makeView(Loader,cyan,dim,red){return class {\n${source}\n}}` : picker ? `export function makePicker(SelectList,selectTheme,modalSurface,Text,boldCyan,dim){return class {\n${source}\n}}` : source);
     const mod = take(vm.evalCode(js, 'candidate.mjs', { type:'module' }));
     try {
-      const fn = vm.getProp(mod, kimi ? 'OpenAICompatibleClient' : loader ? 'makeView' : picker ? 'makePicker' : parser ? 'parseFallbackToolCalls' : 'isImplementationRequest');
+      const fn = vm.getProp(mod, extension ? extension.entry : kimi ? 'OpenAICompatibleClient' : loader ? 'makeView' : picker ? 'makePicker' : parser ? 'parseFallbackToolCalls' : 'isImplementationRequest');
       const arg = vm.newString(input);
       try {
         const res = vm.callFunction(call, vm.undefined, fn, arg);
         if (res.error) res.error.dispose();
         else {
           try {
-            if (picker || loader || kimi) {
+            if (picker || loader || kimi || extension) {
               const jobs = runtime.executePendingJobs(32);
               if (jobs.error) { jobs.error.dispose(); throw Error('Guest job failed'); }
               const state = vm.getPromiseState(res.value);

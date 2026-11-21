@@ -23,7 +23,15 @@ export function loaderLifecycleExcerpt(fullFixtureSource) {
   return `constructor() {\n${init}\n}\n${between('  async run():', '\n  setTodos(')}\n${between('  private async handleSubmit(', '\n  private async showSessionPicker(')}\n`;
 }
 import kimi from '../benchmark/evaluation/kimi-temperature/case.mjs';
+import { adapters } from './eval-adapters/registry.mjs';
 const catalog = new Map([intent, parser, picker, loader, kimi].map(spec => [spec.id, spec]));
+for (const id of adapters.keys()) {
+  const {default:spec}=await import(`../benchmark/evaluation/${id}/case.mjs`);
+  if(spec.id!==id||catalog.has(id))throw Error('Candidate catalog conflict');
+  catalog.set(id,spec);
+}
+export const candidatePath = id => adapters.get(id)?.path ?? (id===loader.id?'src/loader-lifecycle.ts':lookup(id).files.base[0][0]);
+export const projectFixture = (id,source,edition) => adapters.get(id)?.project(source,edition) ?? (id===loader.id?loaderLifecycleExcerpt(source):source);
 export const runnableCaseIds = Object.freeze([...catalog.keys()]);
 const worker = fileURLToPath(new URL('./eval-intent-worker.mjs', import.meta.url));
 const digest = s => createHash('sha256').update(s).digest('hex');
@@ -38,7 +46,7 @@ export async function modelInput(taskId = intent.id) {
   const bytes = await readFile(new URL(`../benchmark/evaluation/${spec.id}/${fixture}`, import.meta.url));
   if (digest(bytes) !== expected) throw Error('Base snapshot digest mismatch');
   if (taskId === loader.id) return {task:spec.task+' Return the replacement class members only: constructor, run and handleSubmit.',files:{'src/loader-lifecycle.ts':loaderLifecycleExcerpt(bytes.toString('utf8'))}};
-  return { task:spec.task, files:{[name]:bytes.toString('utf8')} };
+  return { task:spec.task, files:{[candidatePath(taskId)]:projectFixture(taskId,bytes.toString('utf8'),'base')} };
 }
 const intentChecks = [ ['target', 'How does the app build the navigation menu?',false], ['control','Build the navigation menu.',true] ];
 function parserChecks() {
@@ -76,11 +84,11 @@ export function verifySource(source, taskId = intent.id) {
   const isParser = spec.id === parser.id;
   const pickerChecks = [['target','populated','1|1|1|0|1|0|session-1||'], ['control','empty','0|0|0|0|1|1||fuse|No saved sessions in this workspace.']];
   const loaderChecks = [['target','idle','RE0S|RE0S'], ['control','busy','WT1A']];
-  for (const [kind,input,expected] of spec.id===kimi.id ? kimiChecks : spec.id===loader.id ? loaderChecks : isParser ? parserChecks() : spec.id === picker.id ? pickerChecks : intentChecks) {
+  for (const [kind,input,expected] of adapters.has(taskId) ? adapters.get(taskId).checks : spec.id===kimi.id ? kimiChecks : spec.id===loader.id ? loaderChecks : isParser ? parserChecks() : spec.id === picker.id ? pickerChecks : intentChecks) {
     const r = spawnSync(process.execPath,['--max-old-space-size=64',worker], {input:JSON.stringify({source,input,taskId}),encoding:'utf8',timeout:5000,killSignal:'SIGKILL',maxBuffer:32768,windowsHide:true,env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot}:{} });
     if (r.error || r.status !== 0) throw Error('Verifier worker failed or timed out; no behavioral verdict');
     const {observed} = JSON.parse(r.stdout);
-    const verdict = spec.id===kimi.id ? compareWire(observed,input,expected) : isParser ? compareParser(observed,expected) : observed === null ? 'INVALID' : observed === expected ? 'PASS' : 'FAIL';
+    const verdict = adapters.has(taskId) ? adapters.get(taskId).judge(observed,expected) : spec.id===kimi.id ? compareWire(observed,input,expected) : isParser ? compareParser(observed,expected) : observed === null ? 'INVALID' : observed === expected ? 'PASS' : 'FAIL';
     const prior = observations[kind];
     observations[kind] = [prior,verdict].includes('INVALID') ? 'INVALID' : [prior,verdict].includes('FAIL') ? 'FAIL' : 'PASS';
   }
