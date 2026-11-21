@@ -1,0 +1,14 @@
+{
+  "schema": "jevio-team-case/v1",
+  "task": "Convert backslashes to forward slashes in ordinary Windows paths, including paths with non-ASCII characters. Preserve extended-length paths verbatim.",
+  "entry": "default",
+  "base": {"file": "before.js", "sha256": "a3b3a473a961354a65c5237f6c8c245813a87bd82836cb3709a3894bfcdd1b81"},
+  "gold": {"file": "after.js", "sha256": "8b749b34e43dbb627908471eeaa4239f0a8fffec31465faaf1b0934ad4a20c77"},
+  "checks": [
+    {"kind": "target", "input": "D:\\архив\\写真.png", "expected": "D:/архив/写真.png"},
+    {"kind": "target", "input": "café/notes\\résumé", "expected": "café/notes/résumé"},
+    {"kind": "control", "input": "\\\\?\\D:\\archive\\写真.png", "expected": "\\\\?\\D:\\archive\\写真.png"},
+    {"kind": "control", "input": "\\\\server\\share\\item", "expected": "//server/share/item"},
+    {"kind": "control", "input": "already/normalized", "expected": "already/normalized"}
+  ]
+}

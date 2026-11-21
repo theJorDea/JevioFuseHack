@@ -1,0 +1,4 @@
+# Source and manifest hashes cover the exact checkout bytes on every platform.
+*.js text eol=lf
+case.json text eol=lf
+LICENSE text eol=lf
