@@ -85,6 +85,7 @@ const HELP = `Jevio - local-first coding agent
 
 Usage:
  jevio [options] [task] Запустить задачу; без задачи открыть интерактивный режим
+ jevio handoff Подготовить локальную передачу Claude Code → Codex (experimental)
  jevio web Открыть веб-интерфейс (для работы без терминала)
  jevio init Создать jevio.config.json и стартовый skill
  jevio setup Настроить локального провайдера в интерактивном режиме

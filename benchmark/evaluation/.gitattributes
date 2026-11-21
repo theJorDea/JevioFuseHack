@@ -1,0 +1,2 @@
+*.fixture -text
+probe.mjs text eol=lf

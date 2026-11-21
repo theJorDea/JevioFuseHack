@@ -15,12 +15,15 @@
     "jevio.config.example.json"
   ],
   "scripts": {
-    "start": "node src/cli.ts",
+    "start": "node bin/jevio.mjs",
     "web": "node src/web-server.ts",
     "test": "node scripts/run-tests.mjs test/*.test.ts",
     "test:cloud": "node scripts/run-tests.mjs test/cloud-memory.integration.ts",
     "benchmark:memory": "node scripts/memory-benchmark.mjs",
     "benchmark:memory:check": "node scripts/check-memory-benchmark.mjs",
+    "eval": "node scripts/model-eval.mjs",
+    "eval:demo": "node scripts/eval-demo.mjs",
+    "eval:qualify": "node scripts/eval-qualify.mjs",
     "benchmark:coding": "node scripts/coding-benchmark.mjs",
     "check": "node --check src/cli.ts"
   },
