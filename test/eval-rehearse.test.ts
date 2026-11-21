@@ -12,7 +12,7 @@ import {summarizeEvaluation} from '../src/eval-report.ts';
 test('rehearsal keeps failed attempts, persists evidence, and reconciles only individually identified charges',async t=>{
   const dir=await mkdtemp(path.join(tmpdir(),'eval-rehearse-')); t.after(()=>rm(dir,{recursive:true,force:true}));
   const out=path.join(dir,'run');
-  const summary=await rehearse(out);assert.equal(summary.verified,7);assert.equal(summary.attempts,28);
+  const summary=await rehearse(out);assert.equal(summary.verified,10);assert.equal(summary.attempts,40);
   const ledger=JSON.parse(await readFile(path.join(out,'ledger.json'),'utf8'));
   const kimi=ledger.rows.filter(r=>r.task==='kimi-temperature');
   assert.equal(kimi.length,4);

@@ -31,7 +31,7 @@ for (const id of adapters.keys()) {
   catalog.set(id,spec);
 }
 export const candidatePath = id => adapters.get(id)?.path ?? (id===loader.id?'src/loader-lifecycle.ts':lookup(id).files.base[0][0]);
-export const projectFixture = (id,source,edition) => adapters.get(id)?.project(source,edition) ?? (id===loader.id?loaderLifecycleExcerpt(source):source);
+export const projectFixture = (id,source,edition,files) => adapters.get(id)?.project(source,edition,files) ?? (id===loader.id?loaderLifecycleExcerpt(source):source);
 export const runnableCaseIds = Object.freeze([...catalog.keys()]);
 const worker = fileURLToPath(new URL('./eval-intent-worker.mjs', import.meta.url));
 const digest = s => createHash('sha256').update(s).digest('hex');
@@ -40,13 +40,20 @@ function lookup(id) {
   if (!spec) throw Error('Unknown candidate verifier');
   return spec;
 }
+export async function pinnedCandidateSource(taskId,edition) {
+  const spec=lookup(taskId), files=new Map();
+  if (!['base','gold'].includes(edition)) throw Error('Unknown fixture edition');
+  for (const [name,fixture,expected] of spec.files[edition]) {
+    const bytes=await readFile(new URL(`../benchmark/evaluation/${spec.id}/${fixture}`,import.meta.url));
+    if(digest(bytes)!==expected)throw Error('Candidate snapshot digest mismatch');
+    files.set(name,bytes.toString('utf8'));
+  }
+  return projectFixture(taskId,files.values().next().value,edition,files);
+}
 export async function modelInput(taskId = intent.id) {
-  const spec = lookup(taskId);
-  const [name, fixture, expected] = spec.files.base[0];
-  const bytes = await readFile(new URL(`../benchmark/evaluation/${spec.id}/${fixture}`, import.meta.url));
-  if (digest(bytes) !== expected) throw Error('Base snapshot digest mismatch');
-  if (taskId === loader.id) return {task:spec.task+' Return the replacement class members only: constructor, run and handleSubmit.',files:{'src/loader-lifecycle.ts':loaderLifecycleExcerpt(bytes.toString('utf8'))}};
-  return { task:spec.task, files:{[candidatePath(taskId)]:projectFixture(taskId,bytes.toString('utf8'),'base')} };
+  const spec=lookup(taskId);
+  const suffix=adapters.get(taskId)?.promptSuffix ?? (taskId===loader.id?'Return the replacement class members only: constructor, run and handleSubmit.':'');
+  return {task:[spec.task,suffix].filter(Boolean).join(' '),files:{[candidatePath(taskId)]:await pinnedCandidateSource(taskId,'base')}};
 }
 const intentChecks = [ ['target', 'How does the app build the navigation menu?',false], ['control','Build the navigation menu.',true] ];
 function parserChecks() {
