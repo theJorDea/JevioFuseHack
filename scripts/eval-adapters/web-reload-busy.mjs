@@ -15,8 +15,12 @@ const adapter = `async (client, mode) => {
     '/api/history': {messages:history}, '/api/sessions':sessions,
   };
   function element(){
-    const children=[];
-    return {children, disabled:false, dataset:{}, style:{}, classList:{add(){},remove(){},toggle(){}},
+    const children=[]; let text='';
+    return {children,
+      // Replacing element contents detaches old children; no HTML parser is needed for this probe.
+      set innerHTML(value){children.length=0;text=''},
+      set textContent(value){children.length=0;text=value??''}, get textContent(){return text},
+      disabled:false, dataset:{}, style:{}, classList:{add(){},remove(){},toggle(){}},
       addEventListener(){}, querySelectorAll(){return []}, querySelector(){return null},
       append(...nodes){children.push(...nodes)}, appendChild(node){children.push(node)}};
   }

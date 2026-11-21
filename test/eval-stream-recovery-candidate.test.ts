@@ -24,6 +24,17 @@ test('stream verifier requires preserved request semantics, real fallback reply,
   const fake=mutate('if (isTransientStreamError(error)) return this.complete(request);','if (isTransientStreamError(error)) return modelResponse({content:"Recovered"});');
   assert.deepEqual(check(fake).checks,{target:'FAIL',control:'PASS'});
 });
+for (const [label,old,value,want] of [
+  ['invented tool call','toolCalls, rawMessage };','toolCalls:[{id:"bogus",name:"noop",arguments:"{}"}], rawMessage };',{target:'FAIL',control:'FAIL'}],
+  ['wrong media type','"content-type": "application/json",','"content-type": "text/plain",',{target:'FAIL',control:'FAIL'}],
+  ['missing bearer on retry','...(apiKey ?','...(onDelta && apiKey ?',{target:'FAIL',control:'PASS'}],
+  ['missing custom header on retry','...this.#provider.headers,','...(onDelta ? this.#provider.headers : {}),',{target:'FAIL',control:'PASS'}],
+  ['discarded streamed call','toolCalls.set(index, current);','/* lost call */',{target:'PASS',control:'FAIL'}],
+  ['lost raw tool calls','...(providerToolCalls.length ? { tool_calls: providerToolCalls } : {}),','',{target:'PASS',control:'FAIL'}],
+  ['wrong raw assistant text','role: "assistant",\n    content: message.content ?? "",','role: "assistant",\n    content: "stale",',{target:'FAIL',control:'FAIL'}],
+] as const) test('stream verifier rejects '+label,()=>{
+  assert.deepEqual(check(mutate(old,value)).checks,want);
+});
 test('stream verifier does not trust a candidate verdict or allow host I/O',()=>{
   assert.equal(check('export class OpenAICompatibleClient {async complete(){return {content:"PASS"}}}').verified,false);
   assert.equal(check('import fs from "node:fs"; export class OpenAICompatibleClient {complete(){return fs}}').verified,false);

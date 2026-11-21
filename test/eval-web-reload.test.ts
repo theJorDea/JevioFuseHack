@@ -15,6 +15,12 @@ test('web reload: exact pinned client projection, busy history restored, idle hi
   assert.deepEqual(verifySource(gold,web.id).checks,{target:'PASS',control:'PASS'});
 });
 
+for(const prop of ['innerHTML','textContent']) test(`web reload: clearing chat via ${prop} removes restored bubbles`,async()=>{
+  const gold=web.project(await snapshot('gold'),'gold');
+  const candidate=gold+`\nconst restore=boot; boot=async()=>{await restore();document.getElementById('chat').${prop}='';};`;
+  assert.deepEqual(verifySource(candidate,web.id).checks,{target:'FAIL',control:'FAIL'});
+});
+
 test('web reload: reject duplicates on busy restore, unlocked busy composer, and disabled idle composer',async()=>{
   const gold=web.project(await snapshot('gold'),'gold');
   const checks=(before:string,after:string)=>{

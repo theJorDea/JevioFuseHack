@@ -20,6 +20,11 @@ test('provider merge projection preserves historical failure, fix and configured
   assert.deepEqual(checks(base),{target:'FAIL',control:'PASS'});
   assert.deepEqual(checks(gold),{target:'PASS',control:'PASS'});
 });
+for(const [label,fields] of [['discard config','baseUrl:provider.baseUrl, toolMode:provider.toolMode,'],['drop headers','...provider, headers:undefined,'],['replace transport','...provider, transport:"broken",']]) test(`LM Studio verifier rejects ${label}`,async()=>{
+  const gold=await projected('gold');
+  assert.equal(gold.split('...provider,').length,2);
+  assert.deepEqual(checks(gold.replace('...provider,',fields)),{target:'FAIL',control:'FAIL'});
+});
 test('LM Studio verifier rejects overwriting explicit modes, name-only matching, and port prefix matching',async()=>{
   const gold=await projected('gold');
   const override=gold.replace('!provider.toolMode &&','true &&');
