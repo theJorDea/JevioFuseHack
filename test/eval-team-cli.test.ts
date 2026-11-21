@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const cli=fileURLToPath(new URL('../scripts/eval-team.mjs',import.meta.url));
+test('team CLI qualifies both snapshots before grading and separates model packet from evidence',async t=>{
+  const dir=await mkdtemp(path.join(tmpdir(),'team-eval-')); t.after(()=>rm(dir,{recursive:true,force:true}));
+  const pin=async(file:string,source:string)=>{await writeFile(path.join(dir,file),source);return {file,sha256:createHash('sha256').update(source).digest('hex')};};
+  const base=await pin('before.ts','export function normalize(s:string){return s.toUpperCase()}');
+  const gold=await pin('after.ts','export function normalize(s:string){return s.trim().toUpperCase()} // private-gold');
+  const manifest={schema:'jevio-team-case/v1',task:'Normalize the label',entry:'normalize',base,gold,checks:[{kind:'target',input:' hidden ',expected:'HIDDEN'},{kind:'control',input:'x',expected:'X'}]};
+  await writeFile(path.join(dir,'case.json'),JSON.stringify(manifest));
+  const run=(cmd:string,...args:string[])=>spawnSync(process.execPath,[cli,cmd,'case.json',...args],{cwd:dir,encoding:'utf8'});
+  const packet=run('input');assert.equal(packet.status,0);assert.deepEqual(Object.keys(JSON.parse(packet.stdout)).sort(),['entry','files','task']);assert.doesNotMatch(packet.stdout,/HIDDEN|hidden|private-gold|after.ts/);
+  const ok=run('verify','after.ts');assert.equal(ok.status,0);assert.equal(JSON.parse(ok.stdout).verified,true);assert.doesNotMatch(ok.stdout,/private-gold|HIDDEN/);
+  const bad=run('verify','before.ts');assert.equal(bad.status,1);assert.equal(JSON.parse(bad.stdout).verified,false);
+  manifest.checks.push({kind:'target',input:'Y',expected:'Y'});await writeFile(path.join(dir,'case.json'),JSON.stringify(manifest));
+  const notQualified=run('verify','not-read.ts');assert.equal(notQualified.status,1);const report=JSON.parse(notQualified.stdout);assert.equal(report.qualified,false);assert.equal(report.verified,undefined);
+});
