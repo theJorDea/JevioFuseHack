@@ -15,6 +15,16 @@ async function packet(edition:'base'|'gold'){
   return descriptor.project(files['package.json'],edition,files);
 }
 const check=(src:string)=>verifySource(src,descriptor.id).checks;
+test('runner cannot call spawnSync without importing it', async()=>{
+  const files=JSON.parse(await packet('gold'));
+  files[runner]=files[runner].replace(/^import[^\n]+\n/m,'');
+  assert.deepEqual(check(JSON.stringify(files)),{target:'INVALID',control:'INVALID'});
+});
+test('normal npm test must forward a nonzero child status too', async()=>{
+  const files=JSON.parse(await packet('gold'));
+  files[runner]=files[runner].replace('result.status ?? 1','files[0].includes("cloud") ? (result.status ?? 1) : 0');
+  assert.deepEqual(check(JSON.stringify(files)),{target:'FAIL',control:'FAIL'});
+});
 test('runner multi-file task faithfully represents base and fixed commands and does not ship gold to model',async()=>{
   const base=await packet('base'),gold=await packet('gold');const input=await modelInput(descriptor.id);
   assert.equal(input.files[descriptor.path],base);assert.deepEqual(Object.keys(JSON.parse(base)),['package.json']);

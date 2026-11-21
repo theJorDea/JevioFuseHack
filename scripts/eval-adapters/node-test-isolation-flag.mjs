@@ -29,6 +29,7 @@ function wrap(source) {
   // No module loader. The single supported Node import is bound to a guest-only stub below.
   const imp=/^\s*import\s*\{\s*spawnSync(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*\}\s*from\s*(['"])node:child_process\2\s*;?/m;
   const found=text?.match(imp);
+  if(text!==undefined&&!found)throw Error('Runner must import spawnSync');
   const program=text===undefined?null:{binding:found?.[1]??'spawnSync',source:text.replace(imp,'')};
   return `export const bundle = ${JSON.stringify({commands,program})};`;
 }
@@ -57,8 +58,7 @@ const adapter = `((parse,Fn,isArray) => async (bundle,input) => {
   return seen+';'+status+';'+wire;
 })(JSON.parse,Function,Array.isArray)`;
 const checks=[];
-for (const stable of [false,true]) for(const [script,file] of [['test','test/*.test.ts'],['cloud','test/cloud-memory.integration.ts']]) {
-  const exit=script==='cloud'?3:0;
+for (const stable of [false,true]) for(const [script,file] of [['test','test/*.test.ts'],['cloud','test/cloud-memory.integration.ts']]) for(const exit of [0,3]) {
   const extra=['test/forwarded.test.ts'];
   const argv=['--test',(stable?'--test-isolation':'--experimental-test-isolation')+'=none',file,...extra];
   checks.push([stable?'control':'target',JSON.stringify([script,stable,exit,...extra]),'1;'+exit+';'+argv.map(s=>s.length+':'+s).join('')]);
