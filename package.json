@@ -22,7 +22,10 @@
     "benchmark:memory": "node scripts/memory-benchmark.mjs",
     "benchmark:memory:check": "node scripts/check-memory-benchmark.mjs",
     "eval": "node scripts/model-eval.mjs",
+    "eval:readiness": "node scripts/eval-readiness.mjs",
+    "eval:rehearse": "node scripts/eval-rehearse.mjs",
     "eval:demo": "node scripts/eval-demo.mjs",
+    "eval:candidate": "node scripts/eval-candidate.mjs",
     "eval:qualify": "node scripts/eval-qualify.mjs",
     "benchmark:coding": "node scripts/coding-benchmark.mjs",
     "check": "node --check src/cli.ts"
@@ -37,6 +40,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
     "@opentelemetry/resources": "^2.9.0",
     "@opentelemetry/sdk-trace-base": "^2.9.0",
-    "@opentelemetry/sdk-trace-node": "^2.9.0"
+    "@opentelemetry/sdk-trace-node": "^2.9.0",
+    "quickjs-emscripten": "0.32.0"
   }
 }

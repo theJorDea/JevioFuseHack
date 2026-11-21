@@ -3,7 +3,7 @@ import { CogneeMemory } from '../snapshot/src/memory.ts';
 
 const text = 'Receipt qualification sample';
 const check = process.argv[2];
-if (!['missing', 'provided'].includes(check)) throw new Error('Unknown check');
+if (!['target', 'control'].includes(check)) throw new Error('Unknown check');
 const origin = 'https://receipt.invalid';
 const routes = [];
 const memory = new CogneeMemory({ enabled: true, baseUrl: origin, dataset: 'demo', timeoutMs: 1000 }, '.', async (url, init) => {
@@ -12,7 +12,7 @@ const memory = new CogneeMemory({ enabled: true, baseUrl: origin, dataset: 'demo
   if (!String(url).startsWith(origin + '/')) throw new Error('Unexpected origin');
   switch (route) {
     case 'POST /api/v1/remember':
-      return Response.json(check === 'missing' ? { dataset_id: 'ds' } : { dataset_id: 'ds', data_id: 'direct' });
+      return Response.json(check === 'target' ? { dataset_id: 'ds' } : { dataset_id: 'ds', data_id: 'direct' });
     case 'GET /api/v1/datasets/ds/data':
       return Response.json([{ id: 'other', name: 'unrelated' }, { id: 'resolved', name: 'note' }]);
     case 'GET /api/v1/datasets/ds/data/resolved/raw':
@@ -21,4 +21,12 @@ const memory = new CogneeMemory({ enabled: true, baseUrl: origin, dataset: 'demo
   }
 });
 const receipt = await memory.remember(text, undefined, 'note.md');
-console.log(JSON.stringify({ dataset: receipt?.datasetId ?? null, data: receipt?.dataId ?? null, routes }));
+const same = (...expected) => JSON.stringify(routes) === JSON.stringify(expected);
+const start = 'POST /api/v1/remember';
+if (receipt?.datasetId !== 'ds') throw new Error('Unexpected dataset');
+let verdict;
+if (check === 'control' && same(start) && receipt.dataId === 'direct') verdict = 'PASS';
+if (check === 'target' && same(start) && receipt.dataId == null) verdict = 'FAIL';
+if (check === 'target' && same(start, 'GET /api/v1/datasets/ds/data', 'GET /api/v1/datasets/ds/data/resolved/raw') && receipt.dataId === 'resolved') verdict = 'PASS';
+if (!verdict) throw new Error('Unexpected receipt behavior');
+console.log(JSON.stringify(verdict));

@@ -1,0 +1,68 @@
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from 'node:path';
+import intent from '../benchmark/evaluation/task-intent-questions/case.mjs';
+import parser from '../benchmark/evaluation/text-tool-line-continuation/case.mjs';
+
+import picker from '../benchmark/evaluation/session-picker-focus/case.mjs';
+
+const catalog = new Map([intent, parser, picker].map(spec => [spec.id, spec]));
+export const runnableCaseIds = Object.freeze([...catalog.keys()]);
+const worker = fileURLToPath(new URL('./eval-intent-worker.mjs', import.meta.url));
+const digest = s => createHash('sha256').update(s).digest('hex');
+function lookup(id) {
+  const spec = catalog.get(id);
+  if (!spec) throw Error('Unknown candidate verifier');
+  return spec;
+}
+export async function modelInput(taskId = intent.id) {
+  const spec = lookup(taskId);
+  const [name, fixture, expected] = spec.files.base[0];
+  const bytes = await readFile(new URL(`../benchmark/evaluation/${spec.id}/${fixture}`, import.meta.url));
+  if (digest(bytes) !== expected) throw Error('Base snapshot digest mismatch');
+  return { task:spec.task, files:{[name]:bytes.toString('utf8')} };
+}
+const intentChecks = [ ['target', 'How does the app build the navigation menu?',false], ['control','Build the navigation menu.',true] ];
+function parserChecks() {
+  return [['target','\\\n','LF'], ['target','\\\r\n','CRLF'], ['control','','clean']].map(([kind, wrap, label]) => {
+    const args = { query:`red  blue ${label}`, note:'quoted "text" and a literal backslash: \\test' };
+    const json = JSON.stringify({jevio_tool_calls:[{name:'lookup', arguments:args}]}).replace('red  blue',`red${wrap}  blue`);
+    return [kind, ['```json', json, '```'].join('\n'), args];
+  });
+}
+function compareParser(observed, expected) {
+  if (observed === 'count-mismatch') return 'FAIL';
+  if (typeof observed !== 'string' || !observed.startsWith('6:lookup')) return observed === null ? 'INVALID' : 'FAIL';
+  try { return isDeepStrictEqual(JSON.parse(observed.slice(8)), expected) ? 'PASS' : 'FAIL'; }
+  catch { return 'INVALID'; }
+}
+export function verifySource(source, taskId = intent.id) {
+  const spec = lookup(taskId);
+  if (typeof source !== 'string' || !source.length || Buffer.byteLength(source)>32*1024) throw Error('Expected one replacement source file (1–32768 bytes)');
+  const observations = {};
+  const isParser = spec.id === parser.id;
+  const pickerChecks = [['target','populated','1|1|1|0|1|0|session-1||'], ['control','empty','0|0|0|0|1|1||fuse|No saved sessions in this workspace.']];
+  for (const [kind,input,expected] of isParser ? parserChecks() : spec.id === picker.id ? pickerChecks : intentChecks) {
+    const r = spawnSync(process.execPath,['--max-old-space-size=64',worker], {input:JSON.stringify({source,input,taskId}),encoding:'utf8',timeout:5000,killSignal:'SIGKILL',maxBuffer:32768,windowsHide:true,env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot}:{} });
+    if (r.error || r.status !== 0) throw Error('Verifier worker failed or timed out; no behavioral verdict');
+    const {observed} = JSON.parse(r.stdout);
+    const verdict = isParser ? compareParser(observed,expected) : observed === null ? 'INVALID' : observed === expected ? 'PASS' : 'FAIL';
+    const prior = observations[kind];
+    observations[kind] = [prior,verdict].includes('INVALID') ? 'INVALID' : [prior,verdict].includes('FAIL') ? 'FAIL' : 'PASS';
+  }
+  return {taskId:spec.id,candidateSha256:digest(source),checks:observations,verified: Object.values(observations).every(v=>v==='PASS')};
+}
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+  try {
+    const [cmd,first,second,...extra] = process.argv.slice(2);
+    if (cmd==='input' && second===undefined) console.log(JSON.stringify(await modelInput(first),null,2));
+    else if(cmd==='verify' && first && !extra.length) {
+      const info = await stat(first);
+      if (!info.isFile() || info.size>32768) throw Error('Invalid candidate file');
+      const report = verifySource(await readFile(first,'utf8'),second); console.log(JSON.stringify(report,null,2)); if(!report.verified) process.exitCode=1;
+    } else throw Error('Usage: eval-candidate.mjs input [TASK_ID] | verify FILE [TASK_ID]');
+  } catch(e) {console.error(e.message);process.exitCode=2;}
+}

@@ -1,0 +1,22 @@
+  private async showSessionPicker(): Promise<void> {
+    const sessions = await this.options.listSessions();
+    if (!sessions.length) {
+      this.appendMessage("fuse", "No saved sessions in this workspace.", dim);
+      return;
+    }
+    const items: SelectItem[] = sessions.map((session) => ({
+      value: session.id,
+      label: session.title,
+      description: `${session.id.slice(0, 8)}  ${session.updatedAt.replace("T", " ").slice(0, 16)}`,
+    }));
+    const list = new SelectList(items, 10, selectTheme);
+    const overlay = modalSurface();
+    overlay.addChild(new Text(boldCyan("Saved sessions\n"), 1, 1));
+    overlay.addChild(list);
+    const handle = this.tui.showOverlay(overlay, { width: "78%", minWidth: 54, maxHeight: "60%", anchor: "center", margin: 2 });
+    list.onSelect = (item) => void this.resumeFromPicker(item.value, handle);
+    list.onCancel = () => {
+      handle.hide();
+      this.tui.setFocus(this.editor);
+    };
+  }

@@ -1,0 +1,7 @@
+# Test-runner isolation flag compatibility
+
+Public historical [fix 3a20238](https://github.com/theJorDea/JevioFuseHack/commit/3a202380f908468f8e1b10e3bf68d3a4da07afed), parent `edd32ff2cac73bca71fbded06ea575696fd27044`. The historical `npm test` used a single spelling for the isolation flag; the fix delegates to a wrapper that selects a supported spelling. This is a toolchain portability case, not a model/provider case.
+
+Both manifests and the gold-only `scripts/run-tests.mjs` are complete, byte-identical `git show REV:PATH` blobs; use the paths and SHA-256 values in `case.mjs` to reproduce. No wrapper existed in the base revision. Do not expose this folder, the patched manifest or oracle to the model; expose only the base source entries and task description.
+
+The held-out probe interprets the historical test command as arguments. When the checked-in wrapper exists it executes that trusted wrapper with a recording `spawnSync` and a controlled flag-capabilities set. Target: only experimental spelling supported; control: stable spelling available. The oracle verifies the executable, test mode, isolation policy and test glob, with no npm install or real subprocess suite. This tests argument selection under two simulated capabilities, **not** compatibility of all project tests with two installed Node versions. In a fresh snapshot cwd, run `node PATH/TO/probe.mjs target` and `control` separately. Recorded base FAIL/PASS and gold PASS/PASS with Node 24.14.1.

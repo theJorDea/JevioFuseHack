@@ -1,0 +1,23 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
+const mode = process.argv[2];
+if (!['target','control'].includes(mode) || process.argv.length !== 3) throw Error('Unknown check');
+const source = resolve('src/config.ts');
+const hash = createHash('sha256').update(await readFile(source)).digest('hex');
+if (!['4fbcf178d312ddd2f60f9c63461306a48f60ddc360afc63591e0143c7b1c9645','d78dbb2cc3848c041b2c5997035b8a1a1d8a47b9f5cc4ca6ca482d7682614066'].includes(hash)) throw Error('Unreviewed configuration source');
+const {loadConfig} = await import(pathToFileURL(source));
+const baseUrl = 'http://127.0.0.1:1234/v1';
+const file = resolve('..','held-out',`config-${mode}.json`);
+const providers = mode === 'target' ? { local: {baseUrl} } : { local: {baseUrl, toolMode:'native'}, other:{baseUrl:'https://example.invalid/v1'} };
+await writeFile(file,JSON.stringify({providers}),{flag:'wx'});
+const resolved = (await loadConfig(process.cwd(), file)).providers;
+if (resolved.local?.baseUrl !== baseUrl) throw Error('Expected configured local provider');
+let outcome;
+if (mode === 'target') {
+  if (resolved.local.toolMode === undefined) outcome='FAIL';
+  else if(resolved.local.toolMode === 'text') outcome='PASS';
+} else if(resolved.other?.baseUrl===providers.other.baseUrl && resolved.other.toolMode===undefined && resolved.local.toolMode==='native') outcome='PASS';
+if(!outcome) throw Error('Unexpected configuration behavior');
+process.stdout.write(JSON.stringify(outcome));

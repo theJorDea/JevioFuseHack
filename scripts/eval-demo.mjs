@@ -4,14 +4,13 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { qualifyDemo } from './eval-qualify.mjs';
-import { digest } from '../src/eval-plan.ts';
-const result = await qualifyDemo();
+import { qualifySuite } from './eval-qualify.mjs';
+const result = await qualifySuite();
 if (!result.qualified) throw Error('Control case failed qualification.');
 const dir = await mkdtemp(path.join(tmpdir(),'jevio-eval-demo-'));
 const cli = fileURLToPath(new URL('./model-eval.mjs',import.meta.url));
 try {
-  const manifest = {models:['sim-A','sim-B'],tasks:[{id:result.taskId,caseSha256:digest(JSON.stringify(result))}],repeats:2,provider:'offline',routingGroup:'simulation',systemPrompt:'Fix only the described behavior.',harnessRevision:'2b9e286a9dceb35c35026efd91cb9481c48739b9',tools:[],timeLimitSec:60,maxOutputTokens:2048,temperature:0.1,maxIterations:4,maxCostMicros:50000,seed:'demo'};
+  const manifest = {models:['sim-A','sim-B'],tasks:result.cases.map(c=>({id:c.taskId,caseSha256:c.caseSha256})),repeats:2,provider:'offline',routingGroup:'simulation',systemPrompt:'Fix only the described behavior.',harnessRevision:'2b9e286a9dceb35c35026efd91cb9481c48739b9',tools:[],timeLimitSec:60,maxOutputTokens:2048,temperature:0.1,maxIterations:4,maxCostMicros:50000,seed:'demo'};
   const conf = path.join(dir,'manifest.json'), ledger=path.join(dir,'ledger.json');
   await writeFile(conf,JSON.stringify(manifest));
   const plan=JSON.parse(execFileSync(process.execPath,[cli,'plan',conf],{encoding:'utf8'}));
