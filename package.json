@@ -26,6 +26,7 @@
     "eval:rehearse": "node scripts/eval-rehearse.mjs",
     "eval:demo": "node scripts/eval-demo.mjs",
     "eval:team": "node scripts/eval-team.mjs",
+    "eval:team:rehearse": "node scripts/eval-team-rehearse.mjs",
     "eval:candidate": "node scripts/eval-candidate.mjs",
     "eval:qualify": "node scripts/eval-qualify.mjs",
     "benchmark:coding": "node scripts/coding-benchmark.mjs",
