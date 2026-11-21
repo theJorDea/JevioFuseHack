@@ -9,7 +9,20 @@ import parser from '../benchmark/evaluation/text-tool-line-continuation/case.mjs
 
 import picker from '../benchmark/evaluation/session-picker-focus/case.mjs';
 
-const catalog = new Map([intent, parser, picker].map(spec => [spec.id, spec]));
+import loader from '../benchmark/evaluation/idle-loader-status/case.mjs';
+
+// Select only the historical constructor statement and the two lifecycle methods.
+// Never evaluate this text here. The full fixture imports Node and pi-tui; the packet must not.
+export function loaderLifecycleExcerpt(fullFixtureSource) {
+  function between(start,end) {
+    const a=fullFixtureSource.indexOf(start), b=fullFixtureSource.indexOf(end,a+start.length);
+    if(a===-1 || b===-1 || fullFixtureSource.indexOf(start,a+start.length)!==-1) throw Error('Unrecognized loader fixture layout');
+    return fullFixtureSource.slice(a,b);
+  }
+  const init=between('    this.loader = new Loader(', '\n');
+  return `constructor() {\n${init}\n}\n${between('  async run():', '\n  setTodos(')}\n${between('  private async handleSubmit(', '\n  private async showSessionPicker(')}\n`;
+}
+const catalog = new Map([intent, parser, picker, loader].map(spec => [spec.id, spec]));
 export const runnableCaseIds = Object.freeze([...catalog.keys()]);
 const worker = fileURLToPath(new URL('./eval-intent-worker.mjs', import.meta.url));
 const digest = s => createHash('sha256').update(s).digest('hex');
@@ -23,6 +36,7 @@ export async function modelInput(taskId = intent.id) {
   const [name, fixture, expected] = spec.files.base[0];
   const bytes = await readFile(new URL(`../benchmark/evaluation/${spec.id}/${fixture}`, import.meta.url));
   if (digest(bytes) !== expected) throw Error('Base snapshot digest mismatch');
+  if (taskId === loader.id) return {task:spec.task+' Return the replacement class members only: constructor, run and handleSubmit.',files:{'src/loader-lifecycle.ts':loaderLifecycleExcerpt(bytes.toString('utf8'))}};
   return { task:spec.task, files:{[name]:bytes.toString('utf8')} };
 }
 const intentChecks = [ ['target', 'How does the app build the navigation menu?',false], ['control','Build the navigation menu.',true] ];
@@ -45,7 +59,8 @@ export function verifySource(source, taskId = intent.id) {
   const observations = {};
   const isParser = spec.id === parser.id;
   const pickerChecks = [['target','populated','1|1|1|0|1|0|session-1||'], ['control','empty','0|0|0|0|1|1||fuse|No saved sessions in this workspace.']];
-  for (const [kind,input,expected] of isParser ? parserChecks() : spec.id === picker.id ? pickerChecks : intentChecks) {
+  const loaderChecks = [['target','idle','RE0S|RE0S'], ['control','busy','WT1A']];
+  for (const [kind,input,expected] of spec.id===loader.id ? loaderChecks : isParser ? parserChecks() : spec.id === picker.id ? pickerChecks : intentChecks) {
     const r = spawnSync(process.execPath,['--max-old-space-size=64',worker], {input:JSON.stringify({source,input,taskId}),encoding:'utf8',timeout:5000,killSignal:'SIGKILL',maxBuffer:32768,windowsHide:true,env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot}:{} });
     if (r.error || r.status !== 0) throw Error('Verifier worker failed or timed out; no behavioral verdict');
     const {observed} = JSON.parse(r.stdout);

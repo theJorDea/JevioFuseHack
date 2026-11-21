@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
-import {modelInput,verifySource,runnableCaseIds} from '../scripts/eval-candidate.mjs';
+import {modelInput,verifySource,runnableCaseIds,loaderLifecycleExcerpt} from '../scripts/eval-candidate.mjs';
 
 test('model bundle has only original work and task; base fails, historical fix passes',async()=>{
   const packet=await modelInput();assert.deepEqual(Object.keys(packet).sort(),['files','task']);
@@ -13,7 +13,7 @@ test('model bundle has only original work and task; base fails, historical fix p
 const parserId = 'text-tool-line-continuation';
 const parserGold = new URL('../benchmark/evaluation/text-tool-line-continuation/gold-parser.ts.fixture',import.meta.url);
 test('parser input is the base excerpt only; confirm historical outcomes and both line endings',async()=>{
-  assert.deepEqual(runnableCaseIds,['task-intent-questions',parserId,'session-picker-focus']);
+  assert.deepEqual(runnableCaseIds,['task-intent-questions',parserId,'session-picker-focus','idle-loader-status']);
   const packet = await modelInput(parserId);
   assert.deepEqual(Object.keys(packet).sort(),['files','task']);
   assert.deepEqual(Object.keys(packet.files),['src/agent.ts']);
@@ -49,6 +49,23 @@ test('picker packet is a single class-method excerpt; observes focus, dismissal 
   assert.deepEqual(verifySource(gold.replace('No saved sessions in this workspace.','No results'),id).checks,{target:'PASS',control:'FAIL'});
   assert.deepEqual(verifySource('private async showSessionPicker(){ return "PASS" }',id).checks,{target:'FAIL',control:'FAIL'});
   assert.deepEqual(verifySource('private async showSessionPicker(){ await new Promise(()=>{}) }',id).checks,{target:'INVALID',control:'INVALID'});
+});
+test('loader excerpt verifies initial, pending and finished display independently inside QuickJS',async()=>{
+  const id='idle-loader-status',packet=await modelInput(id);
+  assert.deepEqual(Object.keys(packet.files),['src/loader-lifecycle.ts']);
+  const base=packet.files['src/loader-lifecycle.ts']; assert.doesNotMatch(base,/^import /m);
+  assert.deepEqual(verifySource(base,id).checks,{target:'FAIL',control:'PASS'});
+  const bytes=await readFile(new URL('../benchmark/evaluation/idle-loader-status/gold-interactive-tui.ts.fixture',import.meta.url));
+  const {createHash}=await import('node:crypto');assert.equal(createHash('sha256').update(bytes).digest('hex'),'e9697c8efd1471a8fe56b797be1e7f6f9c52aae0133273d82ee048adc398dcef');
+  const gold=loaderLifecycleExcerpt(bytes.toString('utf8'));
+  assert.deepEqual(verifySource(gold,id).checks,{target:'PASS',control:'PASS'});
+  for(const mutant of [gold.replace('dim, "", { frames: [] }','dim, "Готово", { frames: [] }'),gold.replace('this.loader.setIndicator({ frames: [] });',''),gold.replace('this.loader.setMessage("");','')]) {
+    assert.deepEqual(verifySource(mutant,id).checks,{target:'FAIL',control:'PASS'});
+  }
+  assert.deepEqual(verifySource(gold.replace('this.loader.start();','this.loader.stop();'),id).checks,{target:'PASS',control:'FAIL'});
+  assert.deepEqual(verifySource('run(){return "PASS"} handleSubmit(){return "PASS"}',id).checks,{target:'INVALID',control:'INVALID'});
+  const isolated=gold.replace('this.refreshHeader();','if(typeof process!=="undefined"||typeof fetch!=="undefined"||typeof require!=="undefined")throw 0;this.refreshHeader();');
+  assert.equal(verifySource(isolated,id).verified,true);
 });
 test('outside verifier rejects regression, invalid source and non-boolean verdict',()=>{
   assert.deepEqual(verifySource('export function isImplementationRequest(){return false}').checks,{target:'PASS',control:'FAIL'});

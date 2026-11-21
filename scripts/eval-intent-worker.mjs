@@ -6,6 +6,7 @@ for await (const b of process.stdin) { if ((size += b.length) > 256 * 1024) thro
 const { source, input, taskId } = JSON.parse(Buffer.concat(chunks));
 const parser = taskId === 'text-tool-line-continuation';
 const picker = taskId === 'session-picker-focus';
+const loader = taskId === 'idle-loader-status';
 const engine = await getQuickJS();
 const runtime = engine.newRuntime();
 runtime.setMemoryLimit(16 * 1024 * 1024); runtime.setMaxStackSize(256 * 1024);
@@ -33,7 +34,34 @@ const pickerAdapter = `async (makePicker, mode) => {
   if(typeof id!=='string'||id.length>64||typeof role!=='string'||role.length>32||typeof text!=='string'||text.length>128) return null;
   return (+visible)+'|'+(+presented)+'|'+(+focused)+'|'+(+(shown!==null))+'|'+(+(focus===editor))+'|'+messageCount+'|'+id+'|'+role+'|'+text;
 }`;
-const adapter = picker ? pickerAdapter : parser ? `((isArray, allowed) => (fn, input) => {
+// The Loader double owns its display state in the observer's closure. No VM timers:
+// animation is represented by a started indicator with at least two frames.
+const loaderAdapter = `async (makeView, mode) => {
+  let frame, count=0, animating=false, message, status, finish, submissions=0, created=0;
+  class Loader {
+    constructor(ui,spinColor,messageColor,text,indicator){created++;message=text;this.setIndicator(indicator)}
+    setMessage(text){message=text}
+    setIndicator({frames}){count=frames.length; frame=count?frames[0]:'';this.start()}
+    start(){animating=count>1}
+    stop(){animating=false}
+  }
+  const sample=()=> (status==='Готово'?'R':status==='Работаю...'?'W':'?')+
+    (message===''?'E':message==='Размышляю...'?'T':'?')+
+    (!count?'0':frame==='-'?'1':'?')+(animating?'A':'S');
+  const id=x=>x, noop=()=>{};
+  const View=makeView(Loader,id,id,id), view=new View();
+  view.options={getSession:()=>({messageCount:1}),submit:()=>{submissions++;return new Promise(r=>{finish=r})}};
+  view.tui={start:noop,requestRender:noop,setFocus:noop};view.editor={addToHistory:noop,setText:noop};
+  view.appendMessage=view.refreshHeader=noop;view.setStatus=t=>{status=t};
+  const running=view.run(), startup=sample();
+  const submitting=view.handleSubmit('hello'), busy=sample();
+  if(created!==1||submissions!==1||typeof finish!=='function')return null;
+  finish({output:'answer'});await submitting; const idle=sample();
+  if(typeof view.resolveExit!=='function')return null;
+  view.resolveExit();await running;
+  return mode==='idle'?startup+'|'+idle:busy;
+}`;
+const adapter = loader ? loaderAdapter : picker ? pickerAdapter : parser ? `((isArray, allowed) => (fn, input) => {
   const calls = fn(input, allowed);
   if (!isArray(calls)) return null;
   if (calls.length !== 1) return 'count-mismatch';
@@ -50,17 +78,17 @@ let observed = null;
 try {
   const call = take(vm.evalCode(adapter, 'observation.js', {type:'global'}));
   try {
-    const js = stripTypeScriptTypes(picker ? `export function makePicker(SelectList,selectTheme,modalSurface,Text,boldCyan,dim){return class {\n${source}\n}}` : source);
+    const js = stripTypeScriptTypes(loader ? `export function makeView(Loader,cyan,dim,red){return class {\n${source}\n}}` : picker ? `export function makePicker(SelectList,selectTheme,modalSurface,Text,boldCyan,dim){return class {\n${source}\n}}` : source);
     const mod = take(vm.evalCode(js, 'candidate.mjs', { type:'module' }));
     try {
-      const fn = vm.getProp(mod, picker ? 'makePicker' : parser ? 'parseFallbackToolCalls' : 'isImplementationRequest');
+      const fn = vm.getProp(mod, loader ? 'makeView' : picker ? 'makePicker' : parser ? 'parseFallbackToolCalls' : 'isImplementationRequest');
       const arg = vm.newString(input);
       try {
         const res = vm.callFunction(call, vm.undefined, fn, arg);
         if (res.error) res.error.dispose();
         else {
           try {
-            if (picker) {
+            if (picker || loader) {
               const jobs = runtime.executePendingJobs(32);
               if (jobs.error) { jobs.error.dispose(); throw Error('Guest job failed'); }
               const state = vm.getPromiseState(res.value);

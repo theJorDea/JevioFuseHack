@@ -7,7 +7,6 @@
   </p>
   <p>
     <a href="https://github.com/theJorDea/JevioFuseHack/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/theJorDea/JevioFuseHack/actions/workflows/ci.yml/badge.svg"></a>
-    <img alt="Tests" src="https://img.shields.io/badge/tests-152%20passing-22A06B">
     <img alt="Cognee benchmark" src="https://img.shields.io/badge/Cognee%20benchmark-20%2F20-6C63FF">
     <img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white">
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-111111"></a>

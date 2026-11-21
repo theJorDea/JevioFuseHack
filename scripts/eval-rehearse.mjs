@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { modelInput, verifySource, runnableCaseIds } from './eval-candidate.mjs';
+import { modelInput, verifySource, runnableCaseIds, loaderLifecycleExcerpt } from './eval-candidate.mjs';
 import { makeEvaluationPlan, digest } from '../src/eval-plan.ts';
 import { runAttempt } from './eval-attempt.mjs';
 import { reviewArtifacts } from '../src/eval-review.ts';
@@ -18,7 +18,7 @@ export async function rehearse(out) {
     const {default:spec} = await import(`../benchmark/evaluation/${id}/case.mjs`);
     const gold = await readFile(new URL(`../benchmark/evaluation/${id}/${spec.files.gold[0][1]}`,import.meta.url),'utf8');
     if(digest(gold)!==spec.files.gold[0][2]) throw Error('Gold source mismatch');
-    inputs.set(id,{task,packet:await modelInput(id),gold});
+    inputs.set(id,{task,packet:await modelInput(id),gold:id==='idle-loader-status'?loaderLifecycleExcerpt(gold):gold});
   }
   const tasks = [...inputs.values()].map(({task})=>({id:task.taskId,caseSha256:task.caseSha256}));
   const packetHashes = Object.fromEntries([...inputs].map(([id,{packet}])=>[id,digest(JSON.stringify(packet))]));
@@ -41,7 +41,7 @@ export async function rehearse(out) {
       const request=JSON.parse(init.body); if(request.model!==a.model) throw Error('Unexpected model');
       const headers={'x-request-id':id};
       if(a.model==='mock-b' && a.repeat===2) return Response.json({error:{message:'simulated outage'}},{status:503,headers});
-      const wrong = a.task==='task-intent-questions' ? 'export function isImplementationRequest(){return false}' : a.task==='session-picker-focus' ? 'async showSessionPicker(){}' : 'export function parseFallbackToolCalls(){return []}';
+      const wrong = a.task==='idle-loader-status' ? 'constructor(){} async run(){} async handleSubmit(){}' : a.task==='task-intent-questions' ? 'export function isImplementationRequest(){return false}' : a.task==='session-picker-focus' ? 'async showSessionPicker(){}' : 'export function parseFallbackToolCalls(){return []}';
       const content=a.repeat===2?Object.values(packet.files)[0]:a.model==='mock-a'?gold:wrong;
       return Response.json({id,model:a.model,choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content}}]}, {headers});
     };
