@@ -13,7 +13,7 @@ test('model bundle has only original work and task; base fails, historical fix p
 const parserId = 'text-tool-line-continuation';
 const parserGold = new URL('../benchmark/evaluation/text-tool-line-continuation/gold-parser.ts.fixture',import.meta.url);
 test('parser input is the base excerpt only; confirm historical outcomes and both line endings',async()=>{
-  assert.deepEqual(runnableCaseIds,['task-intent-questions',parserId,'session-picker-focus','idle-loader-status']);
+  assert.deepEqual(runnableCaseIds,['task-intent-questions',parserId,'session-picker-focus','idle-loader-status','kimi-temperature']);
   const packet = await modelInput(parserId);
   assert.deepEqual(Object.keys(packet).sort(),['files','task']);
   assert.deepEqual(Object.keys(packet.files),['src/agent.ts']);
@@ -66,6 +66,23 @@ test('loader excerpt verifies initial, pending and finished display independentl
   assert.deepEqual(verifySource('run(){return "PASS"} handleSubmit(){return "PASS"}',id).checks,{target:'INVALID',control:'INVALID'});
   const isolated=gold.replace('this.refreshHeader();','if(typeof process!=="undefined"||typeof fetch!=="undefined"||typeof require!=="undefined")throw 0;this.refreshHeader();');
   assert.equal(verifySource(isolated,id).verified,true);
+});
+test('Kimi verifier measures full provider requests; preserves non-Kimi temperature precedence',async()=>{
+  const id='kimi-temperature', packet=await modelInput(id);
+  assert.deepEqual(Object.keys(packet.files),['src/provider/openai-compatible.ts']);
+  const base=packet.files['src/provider/openai-compatible.ts'];
+  assert.deepEqual(verifySource(base,id).checks,{target:'FAIL',control:'PASS'});
+  const gold=await readFile(new URL('../benchmark/evaluation/kimi-temperature/gold-provider.ts.fixture',import.meta.url),'utf8');
+  assert.deepEqual(verifySource(gold,id).checks,{target:'PASS',control:'PASS'});
+  const condition='/\\bkimi\\b/i.test(role.model)';
+  for (const [mutant,target,control] of [
+    [gold.replace(condition,'true'),'PASS','FAIL'],
+    [gold.replace(condition,'role.model === "moonshot/Kimi-K2.7"'),'FAIL','PASS'],
+    [gold.replace(condition,'/kimi/i.test(role.model)'),'PASS','FAIL'],
+    [gold.replace('stream: false','stream: true'),'FAIL','FAIL'],
+    [gold.replace('method: "POST"','method: "GET"'),'FAIL','FAIL'],
+    ['export class OpenAICompatibleClient {async complete(){return {content:"OK"}}}','FAIL','FAIL'],
+  ]) assert.deepEqual(verifySource(mutant,id).checks,{target,control});
 });
 test('outside verifier rejects regression, invalid source and non-boolean verdict',()=>{
   assert.deepEqual(verifySource('export function isImplementationRequest(){return false}').checks,{target:'PASS',control:'FAIL'});

@@ -22,7 +22,8 @@ export function loaderLifecycleExcerpt(fullFixtureSource) {
   const init=between('    this.loader = new Loader(', '\n');
   return `constructor() {\n${init}\n}\n${between('  async run():', '\n  setTodos(')}\n${between('  private async handleSubmit(', '\n  private async showSessionPicker(')}\n`;
 }
-const catalog = new Map([intent, parser, picker, loader].map(spec => [spec.id, spec]));
+import kimi from '../benchmark/evaluation/kimi-temperature/case.mjs';
+const catalog = new Map([intent, parser, picker, loader, kimi].map(spec => [spec.id, spec]));
 export const runnableCaseIds = Object.freeze([...catalog.keys()]);
 const worker = fileURLToPath(new URL('./eval-intent-worker.mjs', import.meta.url));
 const digest = s => createHash('sha256').update(s).digest('hex');
@@ -53,6 +54,21 @@ function compareParser(observed, expected) {
   try { return isDeepStrictEqual(JSON.parse(observed.slice(8)), expected) ? 'PASS' : 'FAIL'; }
   catch { return 'INVALID'; }
 }
+const kimiChecks = [['target','moonshot/Kimi-K2.7',[1,1,1]], ['target','alias/KiMi-preview',[1,1,1]],
+  ['control','qwen3-coder',[0,0.15,0.2]], ['control','kimiko-instruct',[0,0.15,0.2]]];
+function compareWire(observed, model, temps) {
+  if (typeof observed!=='string') return 'INVALID';
+  try {
+    const [requests,replies,count]=JSON.parse(observed);
+    if(count!==3 || !isDeepStrictEqual(replies,['OK','OK','OK']) || requests.length!==3) return 'FAIL';
+    for(let i=0;i<3;i++) {
+      const [url,method,type,body]=requests[i];
+      if(url!=='https://provider.invalid/chat/completions'||method!=='POST'||type!=='application/json'||
+         !isDeepStrictEqual(JSON.parse(body),{model,temperature:temps[i],messages:[{role:'user',content:`wire-${i}`}],stream:false})) return 'FAIL';
+    }
+    return 'PASS';
+  } catch { return 'INVALID'; }
+}
 export function verifySource(source, taskId = intent.id) {
   const spec = lookup(taskId);
   if (typeof source !== 'string' || !source.length || Buffer.byteLength(source)>32*1024) throw Error('Expected one replacement source file (1–32768 bytes)');
@@ -60,11 +76,11 @@ export function verifySource(source, taskId = intent.id) {
   const isParser = spec.id === parser.id;
   const pickerChecks = [['target','populated','1|1|1|0|1|0|session-1||'], ['control','empty','0|0|0|0|1|1||fuse|No saved sessions in this workspace.']];
   const loaderChecks = [['target','idle','RE0S|RE0S'], ['control','busy','WT1A']];
-  for (const [kind,input,expected] of spec.id===loader.id ? loaderChecks : isParser ? parserChecks() : spec.id === picker.id ? pickerChecks : intentChecks) {
+  for (const [kind,input,expected] of spec.id===kimi.id ? kimiChecks : spec.id===loader.id ? loaderChecks : isParser ? parserChecks() : spec.id === picker.id ? pickerChecks : intentChecks) {
     const r = spawnSync(process.execPath,['--max-old-space-size=64',worker], {input:JSON.stringify({source,input,taskId}),encoding:'utf8',timeout:5000,killSignal:'SIGKILL',maxBuffer:32768,windowsHide:true,env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot}:{} });
     if (r.error || r.status !== 0) throw Error('Verifier worker failed or timed out; no behavioral verdict');
     const {observed} = JSON.parse(r.stdout);
-    const verdict = isParser ? compareParser(observed,expected) : observed === null ? 'INVALID' : observed === expected ? 'PASS' : 'FAIL';
+    const verdict = spec.id===kimi.id ? compareWire(observed,input,expected) : isParser ? compareParser(observed,expected) : observed === null ? 'INVALID' : observed === expected ? 'PASS' : 'FAIL';
     const prior = observations[kind];
     observations[kind] = [prior,verdict].includes('INVALID') ? 'INVALID' : [prior,verdict].includes('FAIL') ? 'FAIL' : 'PASS';
   }

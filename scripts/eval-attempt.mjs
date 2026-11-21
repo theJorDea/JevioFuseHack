@@ -1,5 +1,5 @@
 // Offline-by-construction: the caller supplies both transport and verifier. No retries or billing estimates.
-const paths = new Map([['task-intent-questions','src/task-intent.ts'],['text-tool-line-continuation','src/agent.ts'],['session-picker-focus','src/picker-method.ts'],['idle-loader-status','src/loader-lifecycle.ts']]);
+const paths = new Map([['task-intent-questions','src/task-intent.ts'],['text-tool-line-continuation','src/agent.ts'],['session-picker-focus','src/picker-method.ts'],['idle-loader-status','src/loader-lifecycle.ts'],['kimi-temperature','src/provider/openai-compatible.ts']]);
 const bodyLimit = 256 * 1024, sourceLimit = 32 * 1024;
 const positive = n => Number.isSafeInteger(n) && n > 0;
 const discard = promise => promise?.catch(() => {});

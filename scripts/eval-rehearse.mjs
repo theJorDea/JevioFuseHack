@@ -41,7 +41,7 @@ export async function rehearse(out) {
       const request=JSON.parse(init.body); if(request.model!==a.model) throw Error('Unexpected model');
       const headers={'x-request-id':id};
       if(a.model==='mock-b' && a.repeat===2) return Response.json({error:{message:'simulated outage'}},{status:503,headers});
-      const wrong = a.task==='idle-loader-status' ? 'constructor(){} async run(){} async handleSubmit(){}' : a.task==='task-intent-questions' ? 'export function isImplementationRequest(){return false}' : a.task==='session-picker-focus' ? 'async showSessionPicker(){}' : 'export function parseFallbackToolCalls(){return []}';
+      const wrong = a.task==='kimi-temperature' ? gold.replace('return requested ?? role.temperature ?? 0.2;', 'return 1;') : a.task==='idle-loader-status' ? 'constructor(){} async run(){} async handleSubmit(){}' : a.task==='task-intent-questions' ? 'export function isImplementationRequest(){return false}' : a.task==='session-picker-focus' ? 'async showSessionPicker(){}' : 'export function parseFallbackToolCalls(){return []}';
       const content=a.repeat===2?Object.values(packet.files)[0]:a.model==='mock-a'?gold:wrong;
       return Response.json({id,model:a.model,choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content}}]}, {headers});
     };

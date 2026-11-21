@@ -6,6 +6,7 @@ for await (const b of process.stdin) { if ((size += b.length) > 256 * 1024) thro
 const { source, input, taskId } = JSON.parse(Buffer.concat(chunks));
 const parser = taskId === 'text-tool-line-continuation';
 const picker = taskId === 'session-picker-focus';
+const kimi = taskId === 'kimi-temperature';
 const loader = taskId === 'idle-loader-status';
 const engine = await getQuickJS();
 const runtime = engine.newRuntime();
@@ -61,7 +62,33 @@ const loaderAdapter = `async (makeView, mode) => {
   view.resolveExit();await running;
   return mode==='idle'?startup+'|'+idle:busy;
 }`;
-const adapter = loader ? loaderAdapter : picker ? pickerAdapter : parser ? `((isArray, allowed) => (fn, input) => {
+// Install a guest-only fetch before loading the module. Copy bounded primitives at call time;
+// the host independently parses the wire body. No process.env, HTTP, real timers or host functions.
+const kimiAdapter = `(() => {
+  const quote=JSON.stringify;
+  let count=0, wire='';
+  const small=s=>typeof s==='string' && s.length<=1024;
+  Object.defineProperty(globalThis,'AbortSignal',{value:Object.freeze({timeout:()=>undefined})});
+  Object.defineProperty(globalThis,'fetch',{value:async(url,init)=>{
+    if(++count>3)throw Error('Too many requests');
+    const method=init?.method, type=init?.headers?.['content-type'], body=init?.body;
+    if(!small(url)||!small(method)||!small(type)||!small(body))throw Error('Bad wire observation');
+    wire+=(count>1?',':'')+'['+quote(url)+','+quote(method)+','+quote(type)+','+quote(body)+']';
+    return {ok:true,status:200,text:async()=>' {"choices":[{"message":{"content":"OK"}}]}' };
+  }});
+  return async(Client,model)=>{
+    let replies='';
+    for(let i=0;i<3;i++){
+      const client=new Client({baseUrl:'https://provider.invalid/'},{model,temperature:i===2?undefined:0.15});
+      const result=await client.complete({messages:[{role:'user',content:'wire-'+i}],temperature:i===0?0:undefined});
+      if(count!==i+1)return '[[],[],0]';
+      if(!small(result?.content))return null;
+      replies+=(i?',':'')+quote(result.content);
+    }
+    return '[['+wire+'],['+replies+'],'+count+']';
+  };
+})()`;
+const adapter = kimi ? kimiAdapter : loader ? loaderAdapter : picker ? pickerAdapter : parser ? `((isArray, allowed) => (fn, input) => {
   const calls = fn(input, allowed);
   if (!isArray(calls)) return null;
   if (calls.length !== 1) return 'count-mismatch';
@@ -81,14 +108,14 @@ try {
     const js = stripTypeScriptTypes(loader ? `export function makeView(Loader,cyan,dim,red){return class {\n${source}\n}}` : picker ? `export function makePicker(SelectList,selectTheme,modalSurface,Text,boldCyan,dim){return class {\n${source}\n}}` : source);
     const mod = take(vm.evalCode(js, 'candidate.mjs', { type:'module' }));
     try {
-      const fn = vm.getProp(mod, loader ? 'makeView' : picker ? 'makePicker' : parser ? 'parseFallbackToolCalls' : 'isImplementationRequest');
+      const fn = vm.getProp(mod, kimi ? 'OpenAICompatibleClient' : loader ? 'makeView' : picker ? 'makePicker' : parser ? 'parseFallbackToolCalls' : 'isImplementationRequest');
       const arg = vm.newString(input);
       try {
         const res = vm.callFunction(call, vm.undefined, fn, arg);
         if (res.error) res.error.dispose();
         else {
           try {
-            if (picker || loader) {
+            if (picker || loader || kimi) {
               const jobs = runtime.executePendingJobs(32);
               if (jobs.error) { jobs.error.dispose(); throw Error('Guest job failed'); }
               const state = vm.getPromiseState(res.value);
